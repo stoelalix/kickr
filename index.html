@@ -1,0 +1,954 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0f1115">
+<title>Kickr Route Rider</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<style>
+  :root{
+    --bg:#0f1115; --panel:#171a21; --panel2:#1f2430; --line:#2b3140;
+    --text:#e8ebf1; --muted:#9aa3b2; --accent:#f97316; --accent2:#3b82f6;
+    --ok:#22c55e; --warn:#eab308; --bad:#ef4444;
+  }
+  *{box-sizing:border-box}
+  [hidden]{display:none!important}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-tap-highlight-color:transparent;overscroll-behavior:none}
+  #app{display:flex;flex-direction:column;height:100%;
+    padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
+  header{display:flex;align-items:center;gap:12px;padding:10px 12px;background:var(--panel);border-bottom:1px solid var(--line);flex-wrap:wrap}
+  .brand{font-weight:700;font-size:17px;letter-spacing:.2px;margin-right:auto;display:flex;align-items:center;gap:10px}
+  .brand small{font-weight:500;color:var(--muted);font-size:13px;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .btns{display:flex;gap:8px;flex-wrap:wrap}
+  .btn{appearance:none;border:1px solid var(--line);background:var(--panel2);color:var(--text);
+    font:inherit;font-size:15px;font-weight:600;padding:10px 14px;border-radius:10px;cursor:pointer;
+    display:inline-flex;align-items:center;gap:8px;min-height:44px;user-select:none}
+  .btn:active{transform:translateY(1px)}
+  .btn:disabled{opacity:.4;cursor:default}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:#111}
+  .btn.blue{background:var(--accent2);border-color:var(--accent2);color:#fff}
+  .btn.strava{background:#fc4c02;border-color:#fc4c02;color:#fff}
+  .dot{width:9px;height:9px;border-radius:50%;background:#555;display:inline-block}
+  .dot.on{background:var(--ok)} .dot.busy{background:var(--warn)} .dot.err{background:var(--bad)}
+  #metrics{display:grid;grid-template-columns:repeat(8,1fr);gap:1px;background:var(--line);border-bottom:1px solid var(--line)}
+  @media (max-width:1000px){#metrics{grid-template-columns:repeat(4,1fr)}}
+  .m{background:var(--panel);padding:8px 12px 10px}
+  .m .l{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px}
+  .m .v{font-size:32px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1.15}
+  .m .v span{font-size:14px;font-weight:600;color:var(--muted);margin-left:3px}
+  .m .s{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+  .m.big .v{color:var(--accent)}
+  #demoBar{display:flex;align-items:center;gap:12px;padding:8px 14px;background:#2a1d0f;color:#fcd9b6;font-size:14px}
+  #demoBar input{flex:1;max-width:420px}
+  #demoBar[hidden]{display:none}
+  main{position:relative;flex:1;min-height:180px}
+  #map{position:absolute;inset:0;background:#222}
+  #mapEmpty{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;color:var(--muted);font-size:17px;text-align:center;padding:20px;z-index:500;background:var(--bg)}
+  #mapEmpty b{color:var(--text);font-size:20px}
+  #followBtn{position:absolute;right:12px;bottom:12px;z-index:600}
+  footer{height:150px;background:var(--panel);border-top:1px solid var(--line);position:relative}
+  #profile{width:100%;height:100%;display:block}
+  #profileHint{position:absolute;right:10px;top:6px;font-size:12px;color:var(--muted);pointer-events:none}
+  .overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:2000;padding:16px}
+  .overlay[hidden]{display:none}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;max-width:560px;width:100%;max-height:90vh;overflow:auto;padding:20px}
+  .card h2{margin:0 0 12px;font-size:20px}
+  .card h3{margin:20px 0 8px;font-size:15px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+  .row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid var(--line)}
+  .row label{flex:1}
+  .row input[type=number],.row input[type=text],.row input[type=password]{width:170px;background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:8px;padding:8px 10px;font:inherit;font-size:16px}
+  .row input.wide{width:100%}
+  .note{font-size:13px;color:var(--muted);line-height:1.45}
+  .note code{background:var(--panel2);padding:1px 5px;border-radius:4px;color:var(--text)}
+  .actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}
+  .summary{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin:8px 0 4px}
+  .summary div{background:var(--panel2);border-radius:10px;padding:10px 12px}
+  .summary .l{font-size:12px;color:var(--muted)} .summary .v{font-size:22px;font-weight:700}
+  #toast{position:fixed;left:50%;bottom:calc(170px + env(safe-area-inset-bottom));transform:translateX(-50%);background:#000c;color:#fff;
+    padding:10px 16px;border-radius:10px;font-size:15px;z-index:3000;max-width:90vw;text-align:center;opacity:0;transition:opacity .25s;pointer-events:none}
+  #toast.show{opacity:1}
+  #fileFallback a{color:var(--accent2);word-break:break-all}
+  .leaflet-container{font:inherit}
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <div class="brand">🚴 Kickr Route Rider <small id="routeName"></small></div>
+    <div class="btns">
+      <label class="btn" for="gpxInput">📂 GPX laden</label>
+      <input type="file" id="gpxInput" hidden>
+      <button class="btn" id="trainerBtn"><span class="dot" id="trainerDot"></span> <span id="trainerLabel">Kickr verbinden</span></button>
+      <button class="btn" id="hrBtn"><span class="dot" id="hrDot"></span> Hartslag</button>
+      <button class="btn primary" id="startBtn" disabled>▶ Start</button>
+      <button class="btn" id="stopBtn" disabled>■ Stop &amp; opslaan</button>
+      <button class="btn" id="settingsBtn" aria-label="Instellingen">⚙︎</button>
+    </div>
+  </header>
+
+  <section id="metrics">
+    <div class="m big"><div class="l">Vermogen</div><div class="v" id="mPower">–<span>W</span></div><div class="s" id="mPowerAvg">gem. – W</div></div>
+    <div class="m"><div class="l">Snelheid</div><div class="v" id="mSpeed">–<span>km/u</span></div><div class="s" id="mSpeedAvg">gem. – km/u</div></div>
+    <div class="m"><div class="l">Helling</div><div class="v" id="mGrade">–<span>%</span></div><div class="s" id="mGradeAhead">komende 500 m: –</div></div>
+    <div class="m"><div class="l">Cadans</div><div class="v" id="mCad">–<span>rpm</span></div><div class="s">&nbsp;</div></div>
+    <div class="m"><div class="l">Hartslag</div><div class="v" id="mHr">–<span>bpm</span></div><div class="s">&nbsp;</div></div>
+    <div class="m"><div class="l">Afstand</div><div class="v" id="mDist">–<span>km</span></div><div class="s" id="mDistLeft">nog – km</div></div>
+    <div class="m"><div class="l">Tijd</div><div class="v" id="mTime">0:00</div><div class="s" id="mState">klaar</div></div>
+    <div class="m"><div class="l">Klimmen</div><div class="v" id="mClimb">–<span>m</span></div><div class="s" id="mClimbTot">van – m</div></div>
+  </section>
+
+  <div id="demoBar" hidden>
+    <b>Testmodus</b> (zonder trainer) — vermogen:
+    <input type="range" id="demoPower" min="0" max="600" step="5" value="200">
+    <span id="demoPowerVal">200 W</span>
+  </div>
+
+  <main>
+    <div id="map"></div>
+    <div id="mapEmpty"><b>Laad een GPX-bestand om te beginnen</b>Daarna: Kickr verbinden → Start</div>
+    <button class="btn" id="followBtn" hidden>📍 Volgen</button>
+  </main>
+
+  <footer>
+    <canvas id="profile"></canvas>
+    <div id="profileHint">tik: hele route ⇄ komende 2 km</div>
+  </footer>
+</div>
+
+<!-- Instellingen -->
+<div class="overlay" id="settingsDlg" hidden>
+  <div class="card">
+    <h2>Instellingen</h2>
+    <h3>Rijder &amp; simulatie</h3>
+    <div class="row"><label for="sMass">Gewicht rijder + fiets (kg)</label><input type="number" id="sMass" min="30" max="200" step="1"></div>
+    <div class="row"><label for="sDiff">Moeilijkheid hellingen (%)<div class="note">100% = echte helling. Lager maakt klimmen lichter (zoals “trainer difficulty”).</div></label><input type="number" id="sDiff" min="0" max="100" step="5"></div>
+    <div class="row"><label for="sCda">Luchtweerstand CdA (m²)<div class="note">0,25 = tijdrit · 0,32 = beugels · 0,40 = rechtop</div></label><input type="number" id="sCda" min="0.15" max="0.7" step="0.01"></div>
+    <div class="row"><label for="sCrr">Rolweerstand Crr<div class="note">0,004 = goed asfalt · 0,006 = matig wegdek</div></label><input type="number" id="sCrr" min="0.002" max="0.015" step="0.0005"></div>
+    <div class="row"><label for="sDemo">Testmodus (zonder trainer)</label><input type="checkbox" id="sDemo" style="width:24px;height:24px"></div>
+
+    <h3>Strava</h3>
+    <p class="note">Eenmalig instellen: maak op <a href="https://www.strava.com/settings/api" target="_blank" rel="noopener" style="color:var(--accent2)">strava.com/settings/api</a> een eigen “API Application” aan.
+      Vul bij <i>Authorization Callback Domain</i> in: <code id="cbDomain"></code>. Kopieer daarna Client ID en Client Secret hieronder.
+      Deze gegevens blijven alleen op dit apparaat.</p>
+    <div class="row"><label for="sClientId">Client ID</label><input type="text" id="sClientId" inputmode="numeric" autocomplete="off"></div>
+    <div class="row"><label for="sClientSecret">Client Secret</label><input type="password" id="sClientSecret" autocomplete="off"></div>
+    <div class="row"><label>Status: <b id="stravaStatus">niet gekoppeld</b></label>
+      <button class="btn strava" id="stravaConnect">Koppel Strava</button></div>
+    <div class="row" style="flex-direction:column;align-items:stretch">
+      <label for="sPasteUrl" class="note">Kwam je na het koppelen in een andere browser of app terecht? Kopieer dan de volledige adresregel van die pagina en plak hem hier:</label>
+      <div style="display:flex;gap:8px"><input type="text" id="sPasteUrl" class="wide" placeholder="https://…?code=…" style="flex:1;background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:8px;padding:8px 10px;font:inherit;font-size:16px">
+      <button class="btn" id="sPasteBtn">OK</button></div>
+    </div>
+    <div class="actions"><button class="btn" id="stravaDisconnect">Strava ontkoppelen</button><span style="flex:1"></span><button class="btn primary" id="settingsClose">Klaar</button></div>
+  </div>
+</div>
+
+<!-- Rit afgerond -->
+<div class="overlay" id="finishDlg" hidden>
+  <div class="card">
+    <h2 id="finishTitle">Rit opslaan</h2>
+    <div class="summary" id="finishSummary"></div>
+    <div class="row"><label for="rideName">Naam van de rit</label><input type="text" id="rideName" style="width:260px"></div>
+    <div class="actions">
+      <button class="btn strava" id="uploadBtn">Upload naar Strava</button>
+      <button class="btn blue" id="saveFileBtn">Bestand opslaan (.tcx)</button>
+    </div>
+    <p class="note" id="uploadStatus"></p>
+    <div class="note" id="fileFallback"></div>
+    <div class="actions"><button class="btn" id="resumeBtn">Verder rijden</button><span style="flex:1"></span><button class="btn" id="newRideBtn">Nieuwe rit</button><button class="btn" id="finishClose">Sluiten</button></div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+'use strict';
+/* =========================================================
+   Kickr Route Rider – stuurt een Wahoo KICKR (Core) aan op basis van een GPX-route.
+   Protocol: Bluetooth FTMS (Fitness Machine Service), met Wahoo-eigen protocol als terugval.
+   ========================================================= */
+
+const $ = id => document.getElementById(id);
+const fmt = (x, d = 0) => (x == null || !isFinite(x)) ? '–' :
+  x.toLocaleString('nl-NL', { minimumFractionDigits: d, maximumFractionDigits: d });
+const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
+const fmtTime = s => { s = Math.floor(s); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), ss = s % 60;
+  return h ? `${h}:${String(m).padStart(2, '0')}:${String(ss).padStart(2, '0')}` : `${m}:${String(ss).padStart(2, '0')}`; };
+
+let toastTimer;
+function toast(msg, ms = 4500) {
+  const t = $('toast'); t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), ms);
+}
+const store = {
+  get(k, def) { try { const v = localStorage.getItem(k); return v == null ? def : JSON.parse(v); } catch { return def; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch { return false; } },
+  del(k) { try { localStorage.removeItem(k); } catch {} }
+};
+
+/* ---------------- Instellingen ---------------- */
+const DEFAULTS = { mass: 85, difficulty: 100, cda: 0.32, crr: 0.004, demo: false, demoPower: 200, stravaId: '', stravaSecret: '' };
+const settings = Object.assign({}, DEFAULTS, store.get('krr.settings', {}));
+const saveSettings = () => store.set('krr.settings', settings);
+
+/* ---------------- Staat ---------------- */
+const S = {
+  route: null,            // verwerkte route
+  pos: 0,                 // positie op route (m)
+  v: 0,                   // virtuele snelheid (m/s)
+  power: 0, cadence: null, hr: null,
+  lastTrainerData: 0,
+  running: false, finished: false, started: false,
+  elapsed: 0,             // rijtijd (s)
+  startTime: null,
+  samples: [],            // opgenomen punten (1 Hz)
+  climbDone: 0, lastEle: null,
+  powerSum: 0, powerN: 0,
+  sentGrade: null, sentAt: 0,
+  profileMode: 'full',
+  follow: true,
+};
+
+/* =========================================================
+   GPX inlezen en route voorbereiden
+   ========================================================= */
+const STEP = 10; // route wordt herbemonsterd op elke 10 m
+
+function haversine(lat1, lon1, lat2, lon2) {
+  const R = 6371008.8, r = Math.PI / 180;
+  const dLat = (lat2 - lat1) * r, dLon = (lon2 - lon1) * r;
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * r) * Math.cos(lat2 * r) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(a)));
+}
+
+function smooth(arr, radius) {
+  const out = new Array(arr.length);
+  for (let i = 0; i < arr.length; i++) {
+    let s = 0, n = 0;
+    for (let k = Math.max(0, i - radius); k <= Math.min(arr.length - 1, i + radius); k++) { s += arr[k]; n++; }
+    out[i] = s / n;
+  }
+  return out;
+}
+
+function buildRoute(text, fileName) {
+  const doc = new DOMParser().parseFromString(text, 'application/xml');
+  if (doc.getElementsByTagName('parsererror').length) throw new Error('Dit lijkt geen geldig GPX-bestand.');
+  let nodes = [...doc.getElementsByTagNameNS('*', 'trkpt')];
+  if (nodes.length < 2) nodes = [...doc.getElementsByTagNameNS('*', 'rtept')];
+  if (nodes.length < 2) throw new Error('Geen route of track gevonden in dit GPX-bestand.');
+  const nameEl = doc.getElementsByTagNameNS('*', 'name')[0];
+  const name = (nameEl && nameEl.textContent.trim()) || (fileName || 'Route').replace(/\.gpx$/i, '');
+
+  const pts = [];
+  for (const n of nodes) {
+    const lat = parseFloat(n.getAttribute('lat')), lon = parseFloat(n.getAttribute('lon'));
+    if (!isFinite(lat) || !isFinite(lon)) continue;
+    const e = n.getElementsByTagNameNS('*', 'ele')[0];
+    const ele = e ? parseFloat(e.textContent) : NaN;
+    const p = pts[pts.length - 1];
+    if (p && p.lat === lat && p.lon === lon) continue;
+    pts.push({ lat, lon, ele });
+  }
+  if (pts.length < 2) throw new Error('Te weinig bruikbare punten in dit GPX-bestand.');
+
+  // Ontbrekende hoogtes invullen
+  const hasEle = pts.some(p => isFinite(p.ele));
+  if (!hasEle) pts.forEach(p => p.ele = 0);
+  else {
+    let last = -1;
+    for (let i = 0; i < pts.length; i++) {
+      if (!isFinite(pts[i].ele)) continue;
+      if (last < 0) for (let j = 0; j < i; j++) pts[j].ele = pts[i].ele;
+      else for (let j = last + 1; j < i; j++) pts[j].ele = pts[last].ele + (pts[i].ele - pts[last].ele) * (j - last) / (i - last);
+      last = i;
+    }
+    for (let j = last + 1; j < pts.length; j++) pts[j].ele = pts[last].ele;
+  }
+
+  // Cumulatieve afstand
+  const cd = [0];
+  for (let i = 1; i < pts.length; i++) cd.push(cd[i - 1] + haversine(pts[i - 1].lat, pts[i - 1].lon, pts[i].lat, pts[i].lon));
+  const total = cd[cd.length - 1];
+  if (total < 100) throw new Error('Deze route is korter dan 100 m.');
+
+  // Herbemonsteren op vaste afstand
+  const lat = [], lon = [], rawEle = [], dist = [];
+  let j = 0;
+  for (let d = 0; ; d += STEP) {
+    if (d > total) d = total;
+    while (j < pts.length - 2 && cd[j + 1] < d) j++;
+    const seg = cd[j + 1] - cd[j], f = seg > 0 ? clamp((d - cd[j]) / seg, 0, 1) : 0;
+    lat.push(pts[j].lat + (pts[j + 1].lat - pts[j].lat) * f);
+    lon.push(pts[j].lon + (pts[j + 1].lon - pts[j].lon) * f);
+    rawEle.push(pts[j].ele + (pts[j + 1].ele - pts[j].ele) * f);
+    dist.push(d);
+    if (d >= total) break;
+  }
+
+  // Hoogte gladstrijken (GPS-ruis) en helling berekenen
+  const ele = smooth(smooth(rawEle, 3), 3);
+  const n = ele.length, grade = new Array(n);
+  for (let i = 0; i < n; i++) {
+    const a = Math.max(0, i - 2), b = Math.min(n - 1, i + 2);
+    const dd = dist[b] - dist[a];
+    grade[i] = dd > 0 ? clamp((ele[b] - ele[a]) / dd, -0.25, 0.25) : 0;
+  }
+  const gradeS = smooth(grade, 2);
+  let climb = 0, minE = Infinity, maxE = -Infinity;
+  for (let i = 0; i < n; i++) {
+    if (i && ele[i] > ele[i - 1]) climb += ele[i] - ele[i - 1];
+    minE = Math.min(minE, ele[i]); maxE = Math.max(maxE, ele[i]);
+  }
+  return { name, lat, lon, ele, dist, grade: gradeS, total, climb, minE, maxE, hasEle };
+}
+
+function routeAt(d) {
+  const R = S.route; d = clamp(d, 0, R.total);
+  const i = Math.min(Math.floor(d / STEP), R.dist.length - 2);
+  const seg = R.dist[i + 1] - R.dist[i], f = seg > 0 ? clamp((d - R.dist[i]) / seg, 0, 1) : 0;
+  const L = a => a[i] + (a[i + 1] - a[i]) * f;
+  return { lat: L(R.lat), lon: L(R.lon), ele: L(R.ele), grade: L(R.grade), i };
+}
+function avgGrade(d1, d2) {
+  d2 = Math.min(d2, S.route.total); if (d2 - d1 < 20) return routeAt(d1).grade;
+  return (routeAt(d2).ele - routeAt(d1).ele) / (d2 - d1);
+}
+
+function loadRouteText(text, fileName, quiet) {
+  if (S.running) { toast('Stop eerst de huidige rit.'); return; }
+  let r;
+  try { r = buildRoute(text, fileName); } catch (e) { toast(e.message, 6000); return; }
+  S.route = r;
+  resetRide();
+  store.set('krr.gpx', { text, fileName });
+  $('routeName').textContent = `${r.name} · ${fmt(r.total / 1000, 1)} km · ${fmt(r.climb)} hm`;
+  $('mapEmpty').hidden = true;
+  drawRouteOnMap();
+  updateButtons(); updateUI(); drawProfile();
+  if (!quiet) toast(r.hasEle ? `Route geladen: ${fmt(r.total / 1000, 1)} km, ${fmt(r.climb)} hoogtemeters`
+                             : 'Let op: dit GPX-bestand bevat geen hoogtedata, de route is dus vlak.', 6000);
+}
+
+$('gpxInput').addEventListener('change', async e => {
+  const f = e.target.files[0]; e.target.value = '';
+  if (!f) return;
+  loadRouteText(await f.text(), f.name);
+});
+
+/* =========================================================
+   Kaart (OpenStreetMap / satelliet via Leaflet)
+   ========================================================= */
+let map = null, routeLine = null, doneLine = null, marker = null, doneIdx = 0;
+function initMap() {
+  if (!window.L) { $('map').innerHTML = '<div style="padding:20px;color:#9aa3b2">Kaart kon niet laden (geen internet?). De rit werkt wel.</div>'; return; }
+  map = L.map('map', { zoomControl: true, attributionControl: true });
+  const osm = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+    { maxZoom: 19, attribution: '© OpenStreetMap-bijdragers' });
+  const sat = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    { maxZoom: 19, attribution: 'Luchtfoto © Esri' });
+  osm.addTo(map);
+  L.control.layers({ 'Kaart': osm, 'Satelliet': sat }, null, { position: 'topright' }).addTo(map);
+  map.setView([52.1, 5.1], 7);
+  map.on('dragstart', () => { if (S.route) { S.follow = false; $('followBtn').hidden = false; } });
+}
+function drawRouteOnMap() {
+  if (!map) return;
+  [routeLine, doneLine, marker].forEach(l => l && map.removeLayer(l));
+  const R = S.route, ll = R.lat.map((la, i) => [la, R.lon[i]]);
+  routeLine = L.polyline(ll, { color: '#3b82f6', weight: 5, opacity: .85 }).addTo(map);
+  doneLine = L.polyline([ll[0]], { color: '#f97316', weight: 6 }).addTo(map);
+  doneIdx = 0;
+  L.circleMarker(ll[ll.length - 1], { radius: 7, color: '#fff', weight: 2, fillColor: '#111', fillOpacity: 1 })
+    .bindTooltip('Finish').addTo(map);
+  marker = L.circleMarker(ll[0], { radius: 10, color: '#fff', weight: 3, fillColor: '#f97316', fillOpacity: 1 }).addTo(map);
+  setTimeout(() => { map.invalidateSize(); map.fitBounds(routeLine.getBounds(), { padding: [30, 30] }); }, 50);
+}
+function updateMap() {
+  if (!map || !S.route || !marker) return;
+  const p = routeAt(S.pos);
+  marker.setLatLng([p.lat, p.lon]);
+  const target = Math.floor(S.pos / STEP);
+  if (target < doneIdx) { doneLine.setLatLngs([[S.route.lat[0], S.route.lon[0]]]); doneIdx = 0; }
+  while (doneIdx < target) { doneIdx++; doneLine.addLatLng([S.route.lat[doneIdx], S.route.lon[doneIdx]]); }
+  if (S.follow && S.started) {
+    if (map.getZoom() < 14) map.setView([p.lat, p.lon], 16, { animate: false });
+    else map.panTo([p.lat, p.lon], { animate: true, duration: 0.8 });
+  }
+}
+$('followBtn').onclick = () => { S.follow = true; $('followBtn').hidden = true; if (S.route) { const p = routeAt(S.pos); map.setView([p.lat, p.lon], 16); } };
+
+/* =========================================================
+   Hoogteprofiel
+   ========================================================= */
+const gradeColor = g => g < -0.02 ? '#64748b' : g < 0.02 ? '#22c55e' : g < 0.05 ? '#eab308' : g < 0.08 ? '#f97316' : g < 0.12 ? '#ef4444' : '#a21caf';
+function drawProfile() {
+  const cv = $('profile'), dpr = window.devicePixelRatio || 1;
+  const W = cv.clientWidth, H = cv.clientHeight;
+  if (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(H * dpr)) { cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); }
+  const c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
+  c.clearRect(0, 0, W, H);
+  if (!S.route) { c.fillStyle = '#9aa3b2'; c.font = '14px sans-serif'; c.fillText('Hoogteprofiel verschijnt na het laden van een route', 14, 28); return; }
+  const R = S.route;
+  let d0 = 0, d1 = R.total;
+  if (S.profileMode === 'ahead') { d0 = Math.max(0, S.pos - 200); d1 = Math.min(R.total, d0 + 2200); d0 = Math.max(0, d1 - 2200); }
+  const padL = 44, padR = 10, padT = 22, padB = 20, w = W - padL - padR, h = H - padT - padB;
+  let lo = Infinity, hi = -Infinity;
+  for (let x = 0; x <= w; x++) { const e = routeAt(d0 + (d1 - d0) * x / w).ele; lo = Math.min(lo, e); hi = Math.max(hi, e); }
+  const minSpan = S.profileMode === 'ahead' ? 30 : 50;
+  if (hi - lo < minSpan) { const m = (hi + lo) / 2; lo = m - minSpan / 2; hi = m + minSpan / 2; }
+  lo -= (hi - lo) * 0.08;
+  const Y = e => padT + h - (e - lo) / (hi - lo) * h;
+  const X = d => padL + (d - d0) / (d1 - d0) * w;
+  for (let x = 0; x < w; x++) {
+    const d = d0 + (d1 - d0) * (x + 0.5) / w, p = routeAt(d);
+    c.fillStyle = gradeColor(p.grade);
+    c.globalAlpha = d <= S.pos ? 0.35 : 0.95;
+    c.fillRect(padL + x, Y(p.ele), 1.2, padT + h - Y(p.ele));
+  }
+  c.globalAlpha = 1;
+  // Assen
+  c.fillStyle = '#9aa3b2'; c.font = '11px sans-serif'; c.textAlign = 'right';
+  c.fillText(fmt(hi) + ' m', padL - 6, padT + 8); c.fillText(fmt(lo) + ' m', padL - 6, padT + h);
+  c.textAlign = 'left'; c.fillText(fmt(d0 / 1000, 1) + ' km', padL, H - 5);
+  c.textAlign = 'right'; c.fillText(fmt(d1 / 1000, 1) + ' km', padL + w, H - 5);
+  // Positie
+  const px = X(S.pos), pe = routeAt(S.pos).ele;
+  c.strokeStyle = '#fff'; c.lineWidth = 2; c.beginPath(); c.moveTo(px, padT - 4); c.lineTo(px, padT + h); c.stroke();
+  c.fillStyle = '#f97316'; c.beginPath(); c.arc(px, Y(pe), 6, 0, Math.PI * 2); c.fill();
+  c.strokeStyle = '#fff'; c.stroke();
+  c.fillStyle = '#e8ebf1'; c.textAlign = 'left'; c.font = '600 12px sans-serif';
+  c.fillText(S.profileMode === 'ahead' ? 'Komende 2 km' : 'Hele route', padL, 14);
+}
+$('profile').addEventListener('click', () => { S.profileMode = S.profileMode === 'full' ? 'ahead' : 'full'; drawProfile(); });
+window.addEventListener('resize', () => { drawProfile(); map && map.invalidateSize(); });
+
+/* =========================================================
+   Bluetooth
+   ========================================================= */
+const UUID = {
+  FTMS: 0x1826, IBD: 0x2ad2, FTMS_CP: 0x2ad9, FTMS_STATUS: 0x2ada,
+  CPS: 0x1818, CPM: 0x2a63, WAHOO_CP: 'a026e005-0a7d-4ab3-97fa-f1500f9feb8b',
+  HRS: 0x180d, HRM: 0x2a37,
+};
+const T = { device: null, mode: null, cp: null, connected: false, reconnects: 0, crank: null };
+
+let bleChain = Promise.resolve();
+function bleWrite(ch, bytes) {
+  const data = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+  bleChain = bleChain.then(() => ch.writeValueWithResponse ? ch.writeValueWithResponse(data) : ch.writeValue(data))
+    .catch(e => console.warn('BLE schrijffout', e));
+  return bleChain;
+}
+function setTrainerStatus(state, label) {
+  $('trainerDot').className = 'dot ' + (state || '');
+  $('trainerLabel').textContent = label;
+}
+function noBluetoothHelp() {
+  toast('Deze browser kan geen Bluetooth gebruiken. Op iPad: open deze pagina in de gratis app “Bluefy – Web BLE Browser”. Op een computer: gebruik Chrome of Edge.', 9000);
+}
+
+async function connectTrainer() {
+  if (!navigator.bluetooth) return noBluetoothHelp();
+  if (T.connected) {
+    if (!S.running) { try { T.device.gatt.disconnect(); } catch {} }
+    else toast('Pauzeer eerst de rit om de trainer los te koppelen.');
+    return;
+  }
+  try {
+    const dev = await navigator.bluetooth.requestDevice({
+      filters: [{ namePrefix: 'KICKR' }, { services: [UUID.FTMS] }, { services: [UUID.CPS] }],
+      optionalServices: [UUID.FTMS, UUID.CPS, UUID.HRS, 'device_information']
+    });
+    T.device = dev; T.reconnects = 0;
+    dev.addEventListener('gattserverdisconnected', onTrainerDisconnected);
+    await setupTrainer();
+  } catch (e) {
+    if (e && e.name === 'NotFoundError') return; // gebruiker annuleerde
+    setTrainerStatus('err', 'Kickr verbinden');
+    toast('Verbinden mislukt: ' + (e.message || e) + '. Is de Rouvy- of Wahoo-app nog open? Sluit die en probeer opnieuw.', 8000);
+  }
+}
+
+async function setupTrainer() {
+  setTrainerStatus('busy', 'Verbinden…');
+  const server = await T.device.gatt.connect();
+  T.mode = null; T.crank = null;
+  // 1) Probeer standaard FTMS
+  try {
+    const svc = await server.getPrimaryService(UUID.FTMS);
+    const cp = await svc.getCharacteristic(UUID.FTMS_CP);
+    await cp.startNotifications();
+    cp.addEventListener('characteristicvaluechanged', onFtmsCpResponse);
+    const ibd = await svc.getCharacteristic(UUID.IBD);
+    await ibd.startNotifications();
+    ibd.addEventListener('characteristicvaluechanged', e => onIndoorBikeData(e.target.value));
+    T.cp = cp; T.mode = 'ftms';
+    await bleWrite(cp, [0x00]); // Request Control
+    await bleWrite(cp, [0x07]); // Start / Resume
+  } catch (e) { console.info('Geen FTMS, probeer Wahoo-protocol', e); }
+  // 2) Terugval: Wahoo-eigen protocol via Cycling Power Service
+  if (!T.mode) {
+    const cps = await server.getPrimaryService(UUID.CPS);
+    const cpm = await cps.getCharacteristic(UUID.CPM);
+    await cpm.startNotifications();
+    cpm.addEventListener('characteristicvaluechanged', e => onCyclingPower(e.target.value));
+    const ctrl = await cps.getCharacteristic(UUID.WAHOO_CP);
+    try { await ctrl.startNotifications(); } catch {}
+    T.cp = ctrl; T.mode = 'wahoo';
+    await bleWrite(ctrl, [0x20, 0xEE, 0xFC]); // unlock
+    const w = Math.round(settings.mass * 100), crr = Math.round(settings.crr * 10000), cw = Math.round(windCoef() * 1000);
+    await bleWrite(ctrl, [0x43, w & 255, w >> 8, crr & 255, crr >> 8, cw & 255, cw >> 8]); // sim mode
+  }
+  T.connected = true;
+  S.sentGrade = null; S.sentAt = 0;
+  await sendGrade(currentTargetGrade(), true);
+  setTrainerStatus('on', 'Kickr ✓');
+  toast(`Kickr verbonden (${T.mode === 'ftms' ? 'FTMS' : 'Wahoo-protocol'})`);
+  updateButtons();
+}
+
+function onFtmsCpResponse(e) {
+  const v = e.target.value;
+  if (v.byteLength >= 3 && v.getUint8(0) === 0x80 && v.getUint8(2) !== 0x01)
+    console.warn('FTMS opdracht 0x' + v.getUint8(1).toString(16) + ' geweigerd, code ' + v.getUint8(2));
+}
+
+async function onTrainerDisconnected() {
+  T.connected = false; updateButtons();
+  if (T.reconnects < 5 && T.device) {
+    T.reconnects++;
+    setTrainerStatus('busy', 'Opnieuw verbinden…');
+    await new Promise(r => setTimeout(r, 1500));
+    try { await setupTrainer(); return; } catch (e) { console.warn(e); }
+    return onTrainerDisconnected();
+  }
+  setTrainerStatus('err', 'Kickr verbinden');
+  toast('Verbinding met de Kickr verbroken.');
+}
+
+const windCoef = () => 0.5 * 1.225 * settings.cda; // kg/m
+
+// Gegevens van de trainer
+function onIndoorBikeData(dv) {
+  try {
+    const f = dv.getUint16(0, true); let o = 2; const r = {};
+    if (!(f & 0x0001)) { r.speed = dv.getUint16(o, true) / 100; o += 2; }
+    if (f & 0x0002) o += 2;
+    if (f & 0x0004) { r.cad = dv.getUint16(o, true) / 2; o += 2; }
+    if (f & 0x0008) o += 2;
+    if (f & 0x0010) o += 3;
+    if (f & 0x0020) o += 2;
+    if (f & 0x0040) { r.power = dv.getInt16(o, true); o += 2; }
+    if (f & 0x0080) o += 2;
+    if (f & 0x0100) o += 5;
+    if (f & 0x0200) { r.hr = dv.getUint8(o); o += 1; }
+    if (r.power != null) { S.power = Math.max(0, r.power); S.lastTrainerData = performance.now(); }
+    if (r.cad != null) S.cadence = r.cad;
+    if (r.hr && !HR.connected) S.hr = r.hr;
+  } catch (e) { /* onvolledig pakket: negeren */ }
+}
+function onCyclingPower(dv) {
+  try {
+    const f = dv.getUint16(0, true);
+    S.power = Math.max(0, dv.getInt16(2, true)); S.lastTrainerData = performance.now();
+    let o = 4;
+    if (f & 0x01) o += 1;
+    if (f & 0x04) o += 2;
+    if (f & 0x10) o += 6;
+    if (f & 0x20) {
+      const revs = dv.getUint16(o, true), t = dv.getUint16(o + 2, true), now = performance.now();
+      if (T.crank) {
+        const dr = (revs - T.crank.revs + 65536) % 65536, dt = ((t - T.crank.t + 65536) % 65536) / 1024;
+        if (dr > 0 && dt > 0) { S.cadence = dr / dt * 60; T.crank = { revs, t, now }; }
+        else if (now - T.crank.now > 3000) S.cadence = 0;
+      } else T.crank = { revs, t, now };
+    }
+  } catch (e) {}
+}
+
+// Helling naar de trainer sturen
+function currentTargetGrade() {
+  if (!S.route || S.finished) return 0;
+  return clamp(routeAt(S.pos).grade * settings.difficulty / 100, -0.10, 0.20);
+}
+async function sendGrade(g, force) {
+  if (!T.connected || !T.cp) return;
+  const now = performance.now();
+  const changed = S.sentGrade == null || Math.abs(g - S.sentGrade) >= 0.001;
+  if (!force && !(changed && now - S.sentAt >= 1000) && now - S.sentAt < 5000) return;
+  S.sentGrade = g; S.sentAt = now;
+  if (T.mode === 'ftms') {
+    const dv = new DataView(new ArrayBuffer(7));
+    dv.setUint8(0, 0x11);                                   // Set Indoor Bike Simulation Parameters
+    dv.setInt16(1, 0, true);                                // wind (0,001 m/s)
+    dv.setInt16(3, Math.round(g * 10000), true);            // helling (0,01 %)
+    dv.setUint8(5, clamp(Math.round(settings.crr * 10000), 0, 255));   // Crr (0,0001)
+    dv.setUint8(6, clamp(Math.round(windCoef() * 100), 0, 255));       // Cw (0,01 kg/m)
+    return bleWrite(T.cp, new Uint8Array(dv.buffer));
+  } else {
+    const n = Math.round((clamp(g, -1, 1) + 1) * 65535 / 2);
+    return bleWrite(T.cp, [0x46, n & 255, n >> 8]);
+  }
+}
+
+// Hartslagmeter (optioneel)
+const HR = { device: null, connected: false };
+async function connectHr() {
+  if (!navigator.bluetooth) return noBluetoothHelp();
+  if (HR.connected) { try { HR.device.gatt.disconnect(); } catch {} return; }
+  try {
+    const dev = await navigator.bluetooth.requestDevice({ filters: [{ services: [UUID.HRS] }] });
+    HR.device = dev;
+    dev.addEventListener('gattserverdisconnected', () => { HR.connected = false; $('hrDot').className = 'dot'; S.hr = null; });
+    $('hrDot').className = 'dot busy';
+    const server = await dev.gatt.connect();
+    const ch = await (await server.getPrimaryService(UUID.HRS)).getCharacteristic(UUID.HRM);
+    await ch.startNotifications();
+    ch.addEventListener('characteristicvaluechanged', e => {
+      const v = e.target.value, f = v.getUint8(0);
+      S.hr = (f & 1) ? v.getUint16(1, true) : v.getUint8(1);
+    });
+    HR.connected = true; $('hrDot').className = 'dot on';
+    toast('Hartslagmeter verbonden');
+  } catch (e) {
+    $('hrDot').className = 'dot';
+    if (e && e.name !== 'NotFoundError') toast('Hartslagmeter verbinden mislukt: ' + (e.message || e));
+  }
+}
+
+$('trainerBtn').onclick = connectTrainer;
+$('hrBtn').onclick = connectHr;
+
+/* =========================================================
+   Simulatie: virtuele snelheid uit vermogen + helling
+   ========================================================= */
+function physicsStep(dt) {
+  const g = 9.81, m = settings.mass, rho = 1.225;
+  const grade = routeAt(S.pos).grade;                // snelheid op basis van de échte helling
+  const th = Math.atan(grade), v = S.v, P = S.power;
+  const Fdrive = P / Math.max(v, 1.0);
+  const Fgrav = m * g * Math.sin(th);
+  const Froll = v > 0.05 ? m * g * settings.crr * Math.cos(th) : 0;
+  const Faero = 0.5 * rho * settings.cda * v * v;
+  let nv = v + (Fdrive - Fgrav - Froll - Faero) / (m + 1.5) * dt;
+  if (nv < 0) nv = 0;
+  if (P <= 0 && nv < 0.5 && grade >= -0.005) nv = 0;
+  S.v = nv;
+  S.pos += (v + nv) / 2 * dt;
+}
+
+let lastTick = performance.now(), lastSample = 0, lastSlow = 0;
+function tick() {
+  const now = performance.now();
+  const dt = Math.min(1, (now - lastTick) / 1000); lastTick = now;
+
+  if (settings.demo && !T.connected) { S.power = settings.demoPower; S.cadence = S.power > 0 ? 85 : 0; }
+  else if (now - S.lastTrainerData > 3000) { S.power = 0; if (T.mode === 'wahoo') S.cadence = 0; }
+
+  if (S.route && S.running) {
+    physicsStep(dt);
+    S.elapsed += dt;
+    S.powerSum += S.power * dt; S.powerN += dt;
+    const p = routeAt(S.pos);
+    if (S.lastEle != null && p.ele > S.lastEle) S.climbDone += p.ele - S.lastEle;
+    S.lastEle = p.ele;
+    if (S.pos >= S.route.total) { S.pos = S.route.total; finishRide(true); }
+    if (now - lastSample >= 1000) { lastSample = now; recordSample(p); }
+  }
+  if (S.route) sendGrade(currentTargetGrade());
+  updateUI();
+  if (now - lastSlow >= 1000) { lastSlow = now; updateMap(); drawProfile(); }
+}
+setInterval(tick, 250);
+
+function recordSample(p) {
+  S.samples.push({ t: Date.now(), lat: +p.lat.toFixed(7), lon: +p.lon.toFixed(7), ele: +p.ele.toFixed(1),
+    d: +S.pos.toFixed(1), v: +S.v.toFixed(2), p: Math.round(S.power),
+    c: S.cadence == null ? null : Math.round(S.cadence), hr: S.hr || null });
+  if (S.samples.length % 30 === 0) persistRide();
+}
+function persistRide() {
+  if (!S.samples.length) return;
+  store.set('krr.lastRide', { name: S.route ? S.route.name : 'Rit', samples: S.samples, elapsed: S.elapsed,
+    climb: S.climbDone, pos: S.pos, startTime: S.startTime });
+}
+
+/* ---------------- Start / pauze / stop ---------------- */
+let wakeLock = null;
+async function keepAwake(on) {
+  try {
+    if (on && 'wakeLock' in navigator && !wakeLock) { wakeLock = await navigator.wakeLock.request('screen'); wakeLock.addEventListener('release', () => wakeLock = null); }
+    if (!on && wakeLock) { await wakeLock.release(); wakeLock = null; }
+  } catch {}
+}
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && S.running) keepAwake(true); });
+
+$('startBtn').onclick = () => {
+  if (!S.route) return;
+  if (S.finished) return;
+  if (!T.connected && !settings.demo) { toast('Verbind eerst je Kickr (of zet de testmodus aan in de instellingen).'); return; }
+  S.running = !S.running;
+  if (S.running) {
+    if (!S.started) { S.started = true; S.startTime = new Date().toISOString(); S.follow = true; if (map) { const p = routeAt(S.pos); map.setView([p.lat, p.lon], 16); } }
+    keepAwake(true);
+  } else { persistRide(); keepAwake(false); }
+  updateButtons();
+};
+$('stopBtn').onclick = () => { if (S.running) { S.running = false; persistRide(); } openFinish(false); updateButtons(); };
+
+function finishRide(reachedEnd) {
+  S.running = false; S.finished = !!reachedEnd; S.v = 0;
+  persistRide(); keepAwake(false); sendGrade(0, true);
+  updateButtons(); openFinish(reachedEnd);
+}
+function resetRide() {
+  Object.assign(S, { pos: 0, v: 0, running: false, finished: false, started: false, elapsed: 0, startTime: null,
+    samples: [], climbDone: 0, lastEle: null, powerSum: 0, powerN: 0, sentGrade: null, follow: true });
+  $('followBtn').hidden = true;
+  if (map && doneLine && S.route) { doneLine.setLatLngs([[S.route.lat[0], S.route.lon[0]]]); doneIdx = 0; }
+}
+
+function updateButtons() {
+  $('startBtn').disabled = !S.route || S.finished;
+  $('startBtn').textContent = S.finished ? '🏁 Finish' : S.running ? '❚❚ Pauze' : (S.started ? '▶ Verder' : '▶ Start');
+  $('stopBtn').disabled = !S.samples.length && !store.get('krr.lastRide', null);
+  $('demoBar').hidden = !settings.demo;
+  $('stravaConnect').disabled = S.running;
+}
+
+/* ---------------- Scherm bijwerken ---------------- */
+function setV(id, val, unit) { const el = $(id); el.firstChild.nodeValue = val; if (unit != null) el.lastChild.textContent = unit; }
+function updateUI() {
+  setV('mPower', fmt(S.power));
+  $('mPowerAvg').textContent = `gem. ${S.powerN ? fmt(S.powerSum / S.powerN) : '–'} W`;
+  setV('mSpeed', fmt(S.v * 3.6, 1));
+  $('mSpeedAvg').textContent = `gem. ${S.elapsed > 5 ? fmt(S.pos / S.elapsed * 3.6, 1) : '–'} km/u`;
+  setV('mCad', S.cadence == null ? '–' : fmt(S.cadence));
+  setV('mHr', S.hr ? fmt(S.hr) : '–');
+  $('mTime').textContent = fmtTime(S.elapsed);
+  $('mState').textContent = S.finished ? 'finish!' : S.running ? 'onderweg' : S.started ? 'gepauzeerd' : 'klaar';
+  if (S.route) {
+    const p = routeAt(S.pos);
+    setV('mGrade', fmt(p.grade * 100, 1));
+    const ga = avgGrade(S.pos, S.pos + 500);
+    $('mGradeAhead').textContent = `komende 500 m: ${fmt(ga * 100, 1)}%` +
+      (settings.difficulty < 100 ? ` · trainer ${fmt(currentTargetGrade() * 100, 1)}%` : '');
+    setV('mDist', fmt(S.pos / 1000, 2));
+    $('mDistLeft').textContent = `nog ${fmt((S.route.total - S.pos) / 1000, 1)} km`;
+    setV('mClimb', fmt(S.climbDone));
+    $('mClimbTot').textContent = `van ${fmt(S.route.climb)} m`;
+  }
+  if (settings.demo) $('demoPowerVal').textContent = settings.demoPower + ' W';
+}
+
+/* =========================================================
+   Rit afronden: TCX maken, opslaan, Strava
+   ========================================================= */
+function rideData() {
+  if (S.samples.length) return { name: S.route ? S.route.name : 'Rit', samples: S.samples, elapsed: S.elapsed, climb: S.climbDone, pos: S.pos, startTime: S.startTime };
+  return store.get('krr.lastRide', null);
+}
+function openFinish(reachedEnd) {
+  const r = rideData();
+  if (!r || !r.samples.length) { toast('Er is nog niets opgenomen.'); return; }
+  const avgP = r.samples.reduce((a, s) => a + s.p, 0) / r.samples.length;
+  const hrs = r.samples.filter(s => s.hr).map(s => s.hr);
+  $('finishTitle').textContent = reachedEnd ? '🏁 Finish! Rit opslaan' : 'Rit opslaan';
+  $('finishSummary').innerHTML = [
+    ['Afstand', fmt(r.pos / 1000, 2) + ' km'], ['Tijd', fmtTime(r.elapsed)],
+    ['Gem. vermogen', fmt(avgP) + ' W'], ['Gem. snelheid', fmt(r.pos / Math.max(1, r.elapsed) * 3.6, 1) + ' km/u'],
+    ['Klimmen', fmt(r.climb) + ' m'], ['Gem. hartslag', hrs.length ? fmt(hrs.reduce((a, b) => a + b, 0) / hrs.length) + ' bpm' : '–'],
+  ].map(([l, v]) => `<div><div class="l">${l}</div><div class="v">${v}</div></div>`).join('');
+  if (!$('rideName').value) $('rideName').value = `${r.name} (Kickr)`;
+  $('uploadStatus').textContent = stravaTokens() ? '' : 'Strava is nog niet gekoppeld: dat doe je via ⚙︎ Instellingen.';
+  $('fileFallback').innerHTML = '';
+  $('resumeBtn').hidden = !!S.finished || !S.samples.length;
+  $('finishDlg').hidden = false;
+}
+$('finishClose').onclick = () => $('finishDlg').hidden = true;
+$('resumeBtn').onclick = () => { $('finishDlg').hidden = true; };
+$('newRideBtn').onclick = () => {
+  if (!confirmInline('newRideBtn', 'Zeker? Tik nog eens')) return;
+  store.del('krr.lastRide'); resetRide(); $('rideName').value = ''; $('finishDlg').hidden = true; updateButtons(); updateUI(); drawProfile();
+};
+const confirmState = {};
+function confirmInline(id, msg) {
+  const b = $(id);
+  if (confirmState[id] && Date.now() - confirmState[id].t < 4000) { b.textContent = confirmState[id].label; delete confirmState[id]; return true; }
+  confirmState[id] = { t: Date.now(), label: b.textContent }; b.textContent = msg;
+  setTimeout(() => { if (confirmState[id]) { b.textContent = confirmState[id].label; delete confirmState[id]; } }, 4000);
+  return false;
+}
+
+function xmlEsc(s) { return String(s).replace(/[<>&"']/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;' }[c])); }
+function buildTcx(r, name) {
+  const s = r.samples, start = new Date(s[0].t).toISOString();
+  const maxV = Math.max(...s.map(x => x.v));
+  const hrs = s.filter(x => x.hr).map(x => x.hr);
+  const pts = s.map(x => {
+    let t = `<Trackpoint><Time>${new Date(x.t).toISOString()}</Time>` +
+      `<Position><LatitudeDegrees>${x.lat}</LatitudeDegrees><LongitudeDegrees>${x.lon}</LongitudeDegrees></Position>` +
+      `<AltitudeMeters>${x.ele}</AltitudeMeters><DistanceMeters>${x.d}</DistanceMeters>`;
+    if (x.hr) t += `<HeartRateBpm><Value>${x.hr}</Value></HeartRateBpm>`;
+    if (x.c != null) t += `<Cadence>${clamp(x.c, 0, 254)}</Cadence>`;
+    t += `<Extensions><ns3:TPX><ns3:Speed>${x.v}</ns3:Speed><ns3:Watts>${x.p}</ns3:Watts></ns3:TPX></Extensions></Trackpoint>`;
+    return t;
+  }).join('\n');
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<TrainingCenterDatabase xmlns="http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2" xmlns:ns3="http://www.garmin.com/xmlschemas/ActivityExtension/v2" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+<Activities><Activity Sport="Biking"><Id>${start}</Id>
+<Lap StartTime="${start}"><TotalTimeSeconds>${Math.round(r.elapsed)}</TotalTimeSeconds><DistanceMeters>${r.pos.toFixed(1)}</DistanceMeters>` +
+`<MaximumSpeed>${maxV.toFixed(2)}</MaximumSpeed><Calories>${Math.round(s.reduce((a, x) => a + x.p, 0) / 1000 * 1.0)}</Calories>` +
+(hrs.length ? `<AverageHeartRateBpm><Value>${Math.round(hrs.reduce((a, b) => a + b, 0) / hrs.length)}</Value></AverageHeartRateBpm><MaximumHeartRateBpm><Value>${Math.max(...hrs)}</Value></MaximumHeartRateBpm>` : '') +
+`<Intensity>Active</Intensity><TriggerMethod>Manual</TriggerMethod><Track>
+${pts}
+</Track><Notes>${xmlEsc(name)}</Notes></Lap><Creator xsi:type="Device_t"><Name>Kickr Route Rider</Name><UnitId>0</UnitId><ProductID>0</ProductID></Creator></Activity></Activities>
+</TrainingCenterDatabase>`;
+}
+function fileNameFor(r) { const d = new Date(r.samples[0].t); return `kickr-rit-${d.toISOString().slice(0, 16).replace(/[:T]/g, '-')}.tcx`; }
+
+$('saveFileBtn').onclick = async () => {
+  const r = rideData(); if (!r) return;
+  const tcx = buildTcx(r, $('rideName').value || r.name), fname = fileNameFor(r);
+  const blob = new Blob([tcx], { type: 'application/vnd.garmin.tcx+xml' });
+  try {
+    const file = new File([blob], fname, { type: 'application/vnd.garmin.tcx+xml' });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: fname }); return; }
+  } catch (e) { if (e && e.name === 'AbortError') return; }
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = fname; document.body.appendChild(a); a.click(); a.remove();
+  $('fileFallback').innerHTML = `Opent er niets? Gebruik deze link: <a href="${url}" download="${fname}">${fname}</a>. ` +
+    `Uploaden kan daarna via <a href="https://www.strava.com/upload/select" target="_blank" rel="noopener">strava.com/upload/select</a>.`;
+};
+
+/* ---------------- Strava ---------------- */
+const stravaTokens = () => store.get('krr.strava', null);
+function stravaRedirectUri() { return location.origin + location.pathname; }
+function updateStravaStatus() {
+  const t = stravaTokens();
+  $('stravaStatus').textContent = t ? `gekoppeld${t.athlete ? ' als ' + t.athlete : ''}` : 'niet gekoppeld';
+}
+$('stravaConnect').onclick = () => {
+  readSettingsForm();
+  if (!settings.stravaId || !settings.stravaSecret) { toast('Vul eerst je Strava Client ID en Client Secret in.'); return; }
+  if (S.running) { toast('Pauzeer eerst je rit.'); return; }
+  persistRide();
+  const u = new URL('https://www.strava.com/oauth/authorize');
+  u.searchParams.set('client_id', settings.stravaId);
+  u.searchParams.set('response_type', 'code');
+  u.searchParams.set('redirect_uri', stravaRedirectUri());
+  u.searchParams.set('approval_prompt', 'auto');
+  u.searchParams.set('scope', 'activity:write,read');
+  location.href = u.toString();
+};
+$('stravaDisconnect').onclick = () => { store.del('krr.strava'); updateStravaStatus(); toast('Strava ontkoppeld'); };
+$('sPasteBtn').onclick = () => {
+  try { const code = new URL($('sPasteUrl').value.trim()).searchParams.get('code'); if (!code) throw 0; stravaExchange(code); }
+  catch { toast('Geen code gevonden in die adresregel.'); }
+};
+async function stravaTokenRequest(params) {
+  const body = new URLSearchParams(Object.assign({ client_id: settings.stravaId, client_secret: settings.stravaSecret }, params));
+  const res = await fetch('https://www.strava.com/oauth/token', { method: 'POST', body });
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok || !j.access_token) throw new Error(j.message || ('HTTP ' + res.status));
+  const old = stravaTokens() || {};
+  const t = { access: j.access_token, refresh: j.refresh_token, expires: j.expires_at,
+    athlete: j.athlete ? [j.athlete.firstname, j.athlete.lastname].filter(Boolean).join(' ') : old.athlete };
+  store.set('krr.strava', t); return t;
+}
+async function stravaExchange(code) {
+  try { await stravaTokenRequest({ code, grant_type: 'authorization_code' }); toast('Strava gekoppeld ✓'); $('sPasteUrl').value = ''; }
+  catch (e) { toast('Strava koppelen mislukt: ' + e.message, 8000); }
+  updateStravaStatus();
+}
+async function stravaAccess() {
+  let t = stravaTokens(); if (!t) throw new Error('Strava is niet gekoppeld (zie Instellingen).');
+  if (t.expires * 1000 < Date.now() + 120000) t = await stravaTokenRequest({ refresh_token: t.refresh, grant_type: 'refresh_token' });
+  return t.access;
+}
+$('uploadBtn').onclick = async () => {
+  const r = rideData(); if (!r) return;
+  const status = $('uploadStatus'), btn = $('uploadBtn');
+  btn.disabled = true;
+  try {
+    status.textContent = 'Bezig met uploaden…';
+    const token = await stravaAccess();
+    const name = $('rideName').value || r.name;
+    const fd = new FormData();
+    fd.append('file', new Blob([buildTcx(r, name)], { type: 'application/xml' }), fileNameFor(r));
+    fd.append('data_type', 'tcx');
+    fd.append('name', name);
+    fd.append('description', 'Gereden op Wahoo KICKR met Kickr Route Rider');
+    fd.append('trainer', '1');
+    fd.append('external_id', fileNameFor(r).replace('.tcx', ''));
+    let res = await fetch('https://www.strava.com/api/v3/uploads', { method: 'POST', headers: { Authorization: 'Bearer ' + token }, body: fd });
+    let j = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(j.message || j.error || ('HTTP ' + res.status));
+    status.textContent = 'Strava verwerkt de rit…';
+    for (let i = 0; i < 30 && !j.activity_id && !j.error; i++) {
+      await new Promise(rs => setTimeout(rs, 2000));
+      res = await fetch('https://www.strava.com/api/v3/uploads/' + j.id_str, { headers: { Authorization: 'Bearer ' + token } });
+      j = await res.json().catch(() => ({}));
+    }
+    if (j.error) throw new Error(j.error);
+    if (!j.activity_id) { status.textContent = 'Geüpload; Strava is nog bezig met verwerken. Kijk over een minuutje in je Strava-feed.'; return; }
+    // Als virtuele rit markeren (lukt dat niet, dan is het geen probleem)
+    fetch('https://www.strava.com/api/v3/activities/' + j.activity_id, { method: 'PUT',
+      headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sport_type: 'VirtualRide', trainer: true }) }).catch(() => {});
+    status.innerHTML = `✓ Op Strava gezet: <a style="color:var(--accent2)" href="https://www.strava.com/activities/${j.activity_id}" target="_blank" rel="noopener">bekijk je rit</a>`;
+  } catch (e) {
+    status.textContent = 'Uploaden mislukt: ' + e.message + '. Je kunt de rit ook als bestand opslaan en via strava.com uploaden.';
+  } finally { btn.disabled = false; }
+};
+
+/* ---------------- Instellingen-venster ---------------- */
+function fillSettingsForm() {
+  $('sMass').value = settings.mass; $('sDiff').value = settings.difficulty; $('sCda').value = settings.cda;
+  $('sCrr').value = settings.crr; $('sDemo').checked = settings.demo;
+  $('sClientId').value = settings.stravaId; $('sClientSecret').value = settings.stravaSecret;
+  $('cbDomain').textContent = location.hostname || '(open deze pagina via een https-adres)';
+  updateStravaStatus();
+}
+function readSettingsForm() {
+  const num = (id, d, lo, hi) => { const v = parseFloat(String($(id).value).replace(',', '.')); return isFinite(v) ? clamp(v, lo, hi) : d; };
+  settings.mass = num('sMass', DEFAULTS.mass, 30, 200);
+  settings.difficulty = num('sDiff', DEFAULTS.difficulty, 0, 100);
+  settings.cda = num('sCda', DEFAULTS.cda, 0.15, 0.7);
+  settings.crr = num('sCrr', DEFAULTS.crr, 0.002, 0.015);
+  settings.demo = $('sDemo').checked;
+  settings.stravaId = $('sClientId').value.trim(); settings.stravaSecret = $('sClientSecret').value.trim();
+  saveSettings();
+}
+$('settingsBtn').onclick = () => { fillSettingsForm(); $('settingsDlg').hidden = false; };
+$('settingsClose').onclick = () => {
+  readSettingsForm(); $('settingsDlg').hidden = true; updateButtons();
+  S.sentGrade = null; // nieuwe instellingen meteen naar trainer
+};
+$('demoPower').oninput = e => { settings.demoPower = +e.target.value; saveSettings(); };
+
+/* ---------------- Opstarten ---------------- */
+initMap();
+$('demoPower').value = settings.demoPower;
+(function boot() {
+  const saved = store.get('krr.gpx', null);
+  if (saved && saved.text) loadRouteText(saved.text, saved.fileName, true);
+  // Terugkeer van Strava-koppeling?
+  const q = new URLSearchParams(location.search);
+  if (q.get('code') || q.get('error')) {
+    history.replaceState(null, '', location.pathname + location.hash);
+    if (q.get('code')) stravaExchange(q.get('code'));
+    else toast('Strava-koppeling geannuleerd.');
+  }
+  updateButtons(); updateUI(); drawProfile();
+  if (!navigator.bluetooth) setTimeout(() => toast('Tip: op iPad werkt Bluetooth alleen in de app “Bluefy”. Open deze pagina daarin.', 7000), 800);
+})();
+</script>
+</body>
+</html>
