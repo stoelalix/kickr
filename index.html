@@ -8,6 +8,7 @@
 <title>Kickr Route Rider</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.149.0/build/three.min.js"></script>
 <style>
   :root{
     --bg:#0f1115; --panel:#171a21; --panel2:#1f2430; --line:#2b3140;
@@ -53,6 +54,9 @@
   @media (orientation:portrait){#scenePane{border-right:0;border-bottom:1px solid var(--line)}}
   main.v-bos #mapPane, main.v-kaart #scenePane{display:none}
   #scene{position:absolute;inset:0;width:100%;height:100%;display:block}
+  #gradeHud{position:absolute;left:12px;top:60px;z-index:5;background:rgba(0,0,0,.55);border-radius:10px;padding:8px 14px;display:flex;flex-direction:column;min-width:120px}
+  #gradeHud b{font-size:26px;font-variant-numeric:tabular-nums}
+  #gradeHud small{font-size:12px;color:#e5e7eb}
   #viewSwitch{position:absolute;left:12px;top:10px;z-index:1200;display:flex;background:#000a;border-radius:10px;padding:3px;gap:2px}
   #viewSwitch button{appearance:none;border:0;background:transparent;color:#ddd;font:inherit;font-size:14px;font-weight:600;padding:8px 14px;border-radius:8px;min-height:36px}
   #viewSwitch button.on{background:var(--accent);color:#111}
@@ -92,7 +96,7 @@
 <body>
 <div id="app">
   <header>
-    <div class="brand">🚴 Kickr Route Rider <small id="routeName"></small></div>
+    <div class="brand">🚴 Kickr Route Rider <small style="color:#64748b">v4</small> <small id="routeName"></small></div>
     <div class="btns">
       <button class="btn" id="routesBtn">🚵 Routes</button>
       <span class="btn fileBtn">📂 GPX laden<input type="file" id="gpxInput" aria-label="GPX-bestand kiezen"></span>
@@ -124,8 +128,22 @@
 
   <div id="nojs">⚠️ <b>De app draait hier niet.</b> Je ziet deze pagina waarschijnlijk in een voorbeeldweergave (bijvoorbeeld in de Bestanden-app of in Claude), waar knoppen niet werken.
     Zet het bestand online (bijv. GitHub Pages) en open dat https-adres in de app <b>Bluefy</b>.</div>
+  <script>
+  /* Klein los script: werkt ook als het hoofdscript een fout bevat, en toont die fout dan in beeld */
+  window.__booted = false;
+  window.__bootErr = function (msg) {
+    var b = document.getElementById('nojs'); if (!b) return;
+    b.hidden = false;
+    b.innerHTML = '⚠️ <b>Er ging iets mis bij het opstarten.</b> Maak een schermafbeelding van deze melding en stuur die naar Claude:<br><code style="background:#0006;padding:2px 6px;border-radius:4px;display:inline-block;margin-top:6px">' +
+      String(msg).replace(/[<>&]/g, function (c) { return { '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]; }) + '</code><br><small>' + navigator.userAgent + '</small>';
+  };
+  window.addEventListener('error', function (e) {
+    if (!window.__booted) window.__bootErr((e.message || 'onbekende fout') + ' (regel ' + (e.lineno || '?') + ':' + (e.colno || '?') + ')');
+  });
+  setTimeout(function () { if (!window.__booted) window.__bootErr('Het hoofdscript is niet (volledig) gestart. Mogelijk is het bestand onvolledig geüpload.'); }, 4000);
+  </script>
   <main id="main" class="v-beide">
-    <div class="pane" id="scenePane"><canvas id="scene"></canvas></div>
+    <div class="pane" id="scenePane"><canvas id="scene"></canvas><div id="gradeHud" hidden><b id="hudGrade">–</b><small id="hudLabel"></small></div></div>
     <div class="pane" id="mapPane">
       <div id="map"></div>
       <button class="btn" id="followBtn" hidden>📍 Volgen</button>
@@ -362,6 +380,7 @@ function loadRouteText(text, fileName, quiet) {
   $('routeName').textContent = `${r.name} · ${fmt(r.total / 1000, 1)} km · ${fmt(r.climb)} hm`;
   $('mapEmpty').hidden = true;
   drawRouteOnMap();
+  if (W3.ok) { try { build3DWorld(r); } catch (e) { console.error(e); toast('3D-weergave kon niet worden opgebouwd: ' + e.message, 8000); } }
   updateButtons(); updateUI(); drawProfile();
   if (!quiet) toast(r.hasEle ? `Route geladen: ${fmt(r.total / 1000, 1)} km, ${fmt(r.climb)} hoogtemeters`
                              : 'Let op: dit GPX-bestand bevat geen hoogtedata, de route is dus vlak.', 6000);
@@ -796,6 +815,8 @@ function updateUI() {
   if (S.route) {
     const p = routeAt(S.pos);
     setV('mGrade', fmt(p.grade * 100, 1));
+    if (W3.ok) { const gp = p.grade * 100; $('hudGrade').textContent = (gp >= 0.05 ? '▲ ' : gp <= -0.05 ? '▼ ' : '● ') + fmt(Math.abs(gp), 1) + '%';
+      $('hudGrade').style.color = p.grade < -0.02 ? '#93c5fd' : gradeColor(p.grade); $('hudLabel').textContent = gp > 1 ? 'klimmen' : gp < -1 ? 'afdalen' : 'vlak'; }
     const ga = avgGrade(S.pos, S.pos + 500);
     $('mGradeAhead').textContent = `komende 500 m: ${fmt(ga * 100, 1)}%` +
       (settings.difficulty < 100 ? ` · trainer ${fmt(currentTargetGrade() * 100, 1)}%` : '');
@@ -1127,6 +1148,7 @@ function drawRider(c, R, wb, grade, crank, wheel, power) {
 }
 
 function drawScene(now) {
+  if (W3.ok) return;            // 3D-weergave actief
   requestAnimationFrame(drawScene);
   if (SC.view === 'kaart') return;
   const cv = $('scene'), dpr = Math.min(2, window.devicePixelRatio || 1);
@@ -1257,13 +1279,562 @@ function drawScene(now) {
 }
 requestAnimationFrame(drawScene);
 
+/* =========================================================
+   3D-weergave (three.js): achteraanzicht zoals in Zwift/Rouvy
+   - het pad volgt de echte bochten en hoogtes van de GPX
+   - rijder op een full-suspension MTB, andere mountainbikers
+   - heuveltjes (rollers) en schansjes in afdalingen
+   ========================================================= */
+const W3 = { ok: false };
+const VEX3 = 1.5;            // hoogteverschillen iets overdreven, zodat je ze goed ziet
+const BUMP_RES = 0.5;        // resolutie van de heuveltjes/schansjes (m)
+
+function placeBetween(mesh, a, b) {
+  const dir = new THREE.Vector3().subVectors(b, a), len = dir.length();
+  mesh.position.copy(a).addScaledVector(dir, 0.5);
+  mesh.scale.set(1, Math.max(len, 1e-4), 1);
+  if (len > 1e-6) mesh.quaternion.setFromUnitVectors(W3._Y, dir.divideScalar(len));
+}
+function ik3(a, c, la, lb, hint) {
+  const ac = new THREE.Vector3().subVectors(c, a);
+  let d = ac.length(); const dn = ac.clone().divideScalar(d || 1);
+  d = Math.min(d, la + lb - 0.001);
+  const x = (la * la - lb * lb + d * d) / (2 * d), h = Math.sqrt(Math.max(0, la * la - x * x));
+  const perp = hint.clone().addScaledVector(dn, -hint.dot(dn)).normalize();
+  return a.clone().addScaledVector(dn, x).addScaledVector(perp, h);
+}
+function disposeTree(obj) {
+  obj.traverse(o => {
+    if (o.geometry) o.geometry.dispose();
+    if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => { if (m.map) m.map.dispose(); m.dispose(); });
+  });
+}
+
+/* ---------------- Rijder op full-suspension MTB ---------------- */
+function makeRider(o) {
+  const TH = THREE, V = (x, y, z) => new TH.Vector3(x, y, z);
+  const root = new TH.Group(); root.rotation.order = 'YXZ';
+  const mat = (c, r = 0.7, m = 0.05) => new TH.MeshStandardMaterial({ color: c, roughness: r, metalness: m });
+  const mFrame = mat(o.frame, 0.35, 0.4), mFrame2 = mat(o.frame2, 0.4, 0.3), mBlack = mat('#141414', 0.75, 0.15),
+    mGold = mat('#d6a21e', 0.25, 0.8), mAlu = mat('#a8adb4', 0.3, 0.85), mSpring = mat(o.spring, 0.4, 0.4),
+    mTyre = mat('#1c1b1a', 0.95, 0), mJersey = mat(o.jersey, 0.85), mAccent = mat(o.accent, 0.8),
+    mShorts = mat(o.shorts, 0.9), mSkin = mat(o.skin, 0.7), mHelmet = mat(o.helmet, 0.45, 0.15),
+    mPack = mat(o.pack, 0.85), mPad = mat('#262626', 0.85), mBeard = mat('#3b2a1e', 0.95);
+  const add = (m, parent = root) => { m.castShadow = true; parent.add(m); return m; };
+  const tube = (a, b, r, m, parent = root) => { const mesh = new TH.Mesh(new TH.CylinderGeometry(r, r, 1, 10), m); placeBetween(mesh, a, b); return add(mesh, parent); };
+  const ball = (p, r, m, parent = root) => { const s = new TH.Mesh(new TH.SphereGeometry(r, 12, 10), m); s.position.copy(p); return add(s, parent); };
+  const R = 0.37;
+
+  // Wielen (29", dikke banden)
+  const wheels = [];
+  for (const z of [-0.58, 0.6]) {
+    const g = new TH.Group(); g.position.set(0, R, z); root.add(g);
+    const tyre = new TH.Mesh(new TH.TorusGeometry(R - 0.055, 0.058, 10, 40), mTyre); tyre.rotation.y = Math.PI / 2; add(tyre, g);
+    const knobs = new TH.Mesh(new TH.TorusGeometry(R - 0.004, 0.018, 4, 64), mTyre); knobs.rotation.y = Math.PI / 2; add(knobs, g);
+    const rim = new TH.Mesh(new TH.TorusGeometry(R - 0.11, 0.018, 6, 36), mBlack); rim.rotation.y = Math.PI / 2; add(rim, g);
+    for (let s = 0; s < 14; s++) { const a = s / 14 * Math.PI * 2; tube(V(s % 2 ? 0.02 : -0.02, 0, 0), V(0, Math.sin(a) * (R - 0.11), Math.cos(a) * (R - 0.11)), 0.0035, mAlu, g); }
+    const hub = new TH.Mesh(new TH.CylinderGeometry(0.032, 0.032, 0.15, 12), mAlu); hub.rotation.z = Math.PI / 2; add(hub, g);
+    const rotor = new TH.Mesh(new TH.CylinderGeometry(0.095, 0.095, 0.004, 24), mAlu); rotor.rotation.z = Math.PI / 2; rotor.position.x = 0.06; add(rotor, g);
+    wheels.push(g);
+  }
+  // Frame: voordriehoek
+  const bb = V(0, 0.34, -0.04);
+  tube(bb, V(0, 0.84, 0.47), 0.04, mFrame);                 // onderbuis (dik)
+  tube(V(0, 0.33, -0.05), V(0, 0.84, -0.17), 0.03, mFrame);  // zitbuis
+  tube(V(0, 0.79, -0.15), V(0, 0.95, 0.44), 0.03, mFrame);   // bovenbuis
+  tube(V(0, 0.8, 0.49), V(0, 1.0, 0.43), 0.042, mFrame2);    // balhoofd
+  // Achterbrug (swingarm) + schokdemper
+  for (const x of [-0.07, 0.07]) {
+    tube(V(x * 0.6, 0.36, -0.08), V(x, R, -0.58), 0.02, mFrame2);    // liggende achtervork
+    tube(V(x, R, -0.58), V(x * 0.7, 0.66, -0.24), 0.017, mFrame2);   // staande achtervork
+  }
+  tube(V(-0.05, 0.66, -0.24), V(0.05, 0.66, -0.24), 0.02, mFrame2);
+  tube(V(0, 0.66, -0.24), V(0, 0.7, -0.12), 0.025, mFrame2);        // rocker link
+  tube(V(0, 0.42, 0.0), V(0, 0.69, -0.12), 0.024, mBlack);          // schokdemper body
+  const springA = V(0, 0.47, -0.02), springB = V(0, 0.62, -0.09);
+  for (let k = 0; k < 7; k++) {                                     // veer (coil)
+    const p = springA.clone().lerp(springB, k / 6);
+    const coil = new TH.Mesh(new TH.TorusGeometry(0.038, 0.008, 6, 16), mSpring);
+    coil.position.copy(p); coil.lookAt(p.clone().add(springB.clone().sub(springA)));
+    add(coil);
+  }
+  // Voorvork (vering)
+  for (const x of [-0.07, 0.07]) {
+    tube(V(x, 0.84, 0.48), V(x, 0.58, 0.545), 0.02, mGold);   // staanders
+    tube(V(x, 0.62, 0.535), V(x, R, 0.6), 0.03, mBlack);      // sliders
+  }
+  tube(V(-0.08, 0.84, 0.48), V(0.08, 0.84, 0.48), 0.03, mBlack); // kroon
+  // Stuur, zadel
+  tube(V(0, 1.0, 0.43), V(0, 1.06, 0.45), 0.02, mBlack);          // stuurpen
+  tube(V(-0.39, 1.07, 0.44), V(0.39, 1.07, 0.44), 0.016, mBlack); // breed stuur
+  for (const x of [-0.34, 0.34]) tube(V(x - 0.05, 1.07, 0.44), V(x + 0.05, 1.07, 0.44), 0.022, mBlack);
+  tube(V(0, 0.82, -0.17), V(0, 0.99, -0.22), 0.016, mBlack);      // zadelpen (dropper)
+  const saddle = new TH.Mesh(new TH.BoxGeometry(0.13, 0.045, 0.27), mBlack); saddle.position.set(0, 1.01, -0.21); add(saddle);
+  // Crank, kettingblad
+  const crank = new TH.Group(); crank.position.copy(bb); root.add(crank);
+  tube(V(-0.085, 0, 0), V(-0.085, 0, 0.17), 0.014, mBlack, crank);
+  tube(V(0.085, 0, 0), V(0.085, 0, -0.17), 0.014, mBlack, crank);
+  const ring = new TH.Mesh(new TH.TorusGeometry(0.085, 0.01, 6, 24), mAlu); ring.rotation.y = Math.PI / 2; ring.position.x = -0.07; add(ring, crank);
+  const pedals = [-1, 1].map(() => add(new TH.Mesh(new TH.BoxGeometry(0.1, 0.02, 0.1), mBlack)));
+
+  // Rijder: romp met rugzak, helm
+  const torso = new TH.Group(); root.add(torso);
+  const chest = new TH.Mesh(new TH.CapsuleGeometry(0.15, 0.28, 6, 14), mJersey); chest.scale.set(1.38, 1, 0.85); chest.position.y = 0.27; add(chest, torso);
+  const pelvis = new TH.Mesh(new TH.SphereGeometry(0.14, 14, 10), mShorts); pelvis.scale.set(1.3, 0.8, 1); pelvis.position.y = 0.02; add(pelvis, torso);
+  for (const x of [-0.21, 0.21]) ball(V(x, 0.49, 0), 0.095, mJersey, torso);           // schouders
+  const stripe = new TH.Mesh(new TH.BoxGeometry(0.46, 0.05, 0.26), mAccent); stripe.position.y = 0.38; add(stripe, torso);
+  const pack = new TH.Mesh(new TH.BoxGeometry(0.3, 0.36, 0.12), mPack); pack.position.set(0, 0.3, -0.17); add(pack, torso);
+  const pack2 = new TH.Mesh(new TH.BoxGeometry(0.22, 0.12, 0.06), mAccent); pack2.position.set(0, 0.22, -0.24); add(pack2, torso);
+  for (const x of [-0.11, 0.11]) tube(V(x, 0.46, -0.12), V(x, 0.12, -0.12), 0.012, mPack, torso); // schouderbanden
+  tube(V(0, 0.54, 0), V(0, 0.64, 0.02), 0.06, mSkin, torso);
+  const head = new TH.Group(); head.position.set(0, 0.7, 0.02); torso.add(head);
+  ball(V(0, 0, 0), 0.105, mSkin, head);
+  const beard = ball(V(0, -0.06, 0.05), 0.075, mBeard, head); beard.scale.set(1, 0.8, 0.9);
+  const helmet = new TH.Mesh(new TH.SphereGeometry(0.132, 18, 12, 0, Math.PI * 2, 0, Math.PI * 0.56), mHelmet); helmet.position.y = 0.015; helmet.scale.set(1, 1, 1.12); add(helmet, head);
+  const visor = new TH.Mesh(new TH.BoxGeometry(0.22, 0.015, 0.11), mHelmet); visor.position.set(0, 0.07, 0.13); visor.rotation.x = 0.35; add(visor, head);
+  const goggles = new TH.Mesh(new TH.TorusGeometry(0.115, 0.012, 6, 24), mAccent); goggles.rotation.x = Math.PI / 2; goggles.position.y = 0.05; add(goggles, head);
+
+  // Ledematen (worden elke frame gezet)
+  const limb = (r, m) => add(new TH.Mesh(new TH.CylinderGeometry(r, r * 0.92, 1, 10), m));
+  const legs = [-1, 1].map(() => ({ thigh: limb(0.085, mShorts), shin: limb(0.062, mPad), knee: ball(V(0, 0, 0), 0.078, mPad), shoe: add(new TH.Mesh(new TH.BoxGeometry(0.11, 0.07, 0.28), mBlack)) }));
+  const arms = [-1, 1].map(() => ({ upper: limb(0.066, mJersey), fore: limb(0.052, mSkin), elbow: ball(V(0, 0, 0), 0.056, mSkin), hand: ball(V(0, 0, 0), 0.05, mBlack) }));
+
+  const hipSeat = V(0, 1.05, -0.2), hipDesc = V(0, 1.14, -0.34), hipClimb = V(0, 1.2, -0.03);
+  const tmp = new TH.Vector3();
+  function update(st) {
+    const d = st.descend, c = st.climb * (1 - d);
+    tmp.copy(hipSeat).lerp(hipDesc, d).lerp(hipClimb, c);
+    const bob = Math.sin(st.crank * 2) * (0.008 + 0.03 * c);
+    const lean = 0.95 + 0.22 * d - 0.2 * c;
+    torso.position.set(tmp.x + Math.sin(st.crank) * 0.03 * c, tmp.y + bob, tmp.z);
+    torso.rotation.set(lean, 0, Math.sin(st.crank) * 0.08 * c);
+    head.rotation.x = -lean * 0.8;
+    torso.updateMatrix();
+    wheels.forEach(w => w.rotation.x = st.wheel);
+    crank.rotation.x = st.crank;
+    const L = 0.17, sa = Math.sin(st.crank), ca = Math.cos(st.crank);
+    const pedalPos = [V(-0.14, bb.y - L * sa, bb.z + L * ca), V(0.14, bb.y + L * sa, bb.z - L * ca)];
+    [-1, 1].forEach((side, i) => {
+      const p = pedalPos[i]; pedals[i].position.copy(p);
+      const hip = V(side * 0.1, 0, 0).applyMatrix4(torso.matrix);
+      const foot = p.clone().add(V(0, 0.045, 0.01));
+      const knee = ik3(hip, foot, 0.47, 0.46, V(side * 0.15, 0.25, 1));
+      const lg = legs[i];
+      placeBetween(lg.thigh, hip, knee); placeBetween(lg.shin, knee, foot);
+      lg.knee.position.copy(knee); lg.shoe.position.copy(p).add(V(0, 0.045, 0.02));
+      const sh = V(side * 0.21, 0.49, 0).applyMatrix4(torso.matrix);
+      const hand = V(side * 0.33, 1.07, 0.44);
+      const elbow = ik3(sh, hand, 0.3, 0.29, V(side * 1, -0.15, -0.35));
+      const am = arms[i];
+      placeBetween(am.upper, sh, elbow); placeBetween(am.fore, elbow, hand);
+      am.elbow.position.copy(elbow); am.hand.position.copy(hand);
+    });
+  }
+  update({ crank: 0, wheel: 0, descend: 0, climb: 0 });
+  return { root, update };
+}
+
+/* ---------------- Initialisatie ---------------- */
+function init3D() {
+  if (!window.THREE) return false;
+  let renderer;
+  try {
+    renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+  } catch (e) { console.warn('Geen WebGL', e); return false; }
+  W3._Y = new THREE.Vector3(0, 1, 0);
+  renderer.setPixelRatio(Math.min(1.5, window.devicePixelRatio || 1));
+  renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  const cv = renderer.domElement; cv.id = 'scene3d';
+  cv.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;display:block';
+  $('scenePane').insertBefore(cv, $('scenePane').firstChild);
+  $('scene').hidden = true;
+  const scene = new THREE.Scene();
+  const sky = new THREE.Color('#bcd6e4');
+  scene.background = sky; scene.fog = new THREE.Fog(sky, 30, 230);
+  const camera = new THREE.PerspectiveCamera(62, 1, 0.1, 400);
+  scene.add(new THREE.HemisphereLight('#e6f2ff', '#3f4d22', 0.9));
+  const sun = new THREE.DirectionalLight('#fff1d6', 0.95);
+  sun.castShadow = true; sun.shadow.mapSize.set(1024, 1024);
+  Object.assign(sun.shadow.camera, { left: -14, right: 14, top: 14, bottom: -14, near: 1, far: 120 });
+  sun.shadow.bias = -0.0006;
+  scene.add(sun, sun.target);
+  const player = makeRider({ frame: '#1e293b', frame2: '#0f172a', spring: '#f97316', jersey: '#2f3b2f', accent: '#f97316',
+    shorts: '#1c1c1c', skin: '#c68c64', helmet: '#e5e7eb', pack: '#262626' });
+  scene.add(player.root);
+  Object.assign(W3, { ok: true, renderer, scene, camera, sun, player, world: null, npcs: [], air: null, prevPos: 0,
+    nextNpc: performance.now() + 15000, lastT: performance.now(), lean: 0, descend: 0, climb: 0, crank: 0, wheel: 0,
+    camPos: new THREE.Vector3(), camLook: new THREE.Vector3(), camInit: false, npcPool: [] });
+  $('gradeHud').hidden = false;
+  renderer.setAnimationLoop(render3D);
+  return true;
+}
+
+/* ---------------- Route → 3D-pad ---------------- */
+const _cr = (p0, p1, p2, p3, t) => { const t2 = t * t, t3 = t2 * t; return 0.5 * (2 * p1 + (-p0 + p2) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 + (-p0 + 3 * p1 - 3 * p2 + p3) * t3); };
+function pathAt(d, out) {
+  const P = W3.path, R = S.route; d = clamp(d, 0, R.total);
+  const i = Math.min(Math.floor(d / STEP), P.n - 2);
+  const seg = R.dist[i + 1] - R.dist[i], t = seg > 0 ? clamp((d - R.dist[i]) / seg, 0, 1) : 0;
+  const a = Math.max(0, i - 1), b = i, c = i + 1, e = Math.min(P.n - 1, i + 2);
+  out.x = _cr(P.x[a], P.x[b], P.x[c], P.x[e], t);
+  out.y = _cr(P.y[a], P.y[b], P.y[c], P.y[e], t);
+  out.z = _cr(P.z[a], P.z[b], P.z[c], P.z[e], t);
+  return out;
+}
+function bumpAt(d) {
+  const B = W3.bumps; if (!B) return 0;
+  const f = d / BUMP_RES, i = Math.floor(f);
+  if (i < 0 || i >= B.length - 1) return 0;
+  return B[i] + (B[i + 1] - B[i]) * (f - i);
+}
+const _pa = { x: 0, y: 0, z: 0 }, _pb = { x: 0, y: 0, z: 0 }, _pc = { x: 0, y: 0, z: 0 };
+function trailY(d) { return pathAt(d, _pa).y + bumpAt(d); }
+function headingAt(d, ahead = 3, behind = 3) {
+  pathAt(d + ahead, _pb); pathAt(d - behind, _pc);
+  const hx = _pb.x - _pc.x, hz = _pb.z - _pc.z, l = Math.hypot(hx, hz) || 1;
+  return { x: hx / l, z: hz / l };
+}
+
+function build3DWorld(R) {
+  if (!W3.ok) return;
+  if (W3.world) { W3.scene.remove(W3.world); disposeTree(W3.world); W3.world = null; }
+  W3.npcs.forEach(n => { W3.scene.remove(n.r.root); }); W3.npcs = [];
+  W3.air = null; W3.camInit = false;
+  const TH = THREE, world = new TH.Group();
+
+  // 1) Pad in lokale meters (x = oost, z = zuid, y = hoogte)
+  const lat0 = R.lat[0], lon0 = R.lon[0], kx = Math.cos(lat0 * Math.PI / 180) * 111320, ky = 110540, e0 = R.ele[0];
+  const n = R.lat.length;
+  const x = smooth(R.lon.map(v => (v - lon0) * kx), 1), z = smooth(R.lat.map(v => -(v - lat0) * ky), 1), y = R.ele.map(v => (v - e0) * VEX3);
+  W3.path = { x, y, z, n };
+
+  // 2) Heuveltjes en schansjes in afdalingen
+  const bumps = new Float32Array(Math.ceil(R.total / BUMP_RES) + 4);
+  const kickers = [];
+  for (let d = 60; d < R.total - 60;) {
+    const g = avgGrade(d, d + 40);
+    if (g < -0.022 && rnd(d * 0.0131 + 3) < 0.6) {
+      if (rnd(d * 0.071) < 0.5) {               // rij heuveltjes (rollers)
+        const cnt = 2 + Math.floor(rnd(d * 0.29) * 3), len = 7, h = 0.45 + rnd(d * 0.53) * 0.35;
+        for (let k = 0; k < cnt; k++) for (let s = 0; s <= len; s += BUMP_RES) {
+          const idx = Math.round((d + k * len + s) / BUMP_RES);
+          if (idx < bumps.length) bumps[idx] = Math.max(bumps[idx], h * Math.sin(Math.PI * s / len) ** 2);
+        }
+        d += cnt * len + 45;
+      } else {                                  // schansje (kicker)
+        const L = 3.2, H = 0.7 + rnd(d * 0.37) * 0.35;
+        for (let s = 0; s <= L; s += BUMP_RES) { const idx = Math.round((d + s) / BUMP_RES); if (idx < bumps.length) bumps[idx] = H * Math.pow(s / L, 1.5); }
+        kickers.push({ start: d, end: d + L, H, angle: Math.atan(1.5 * H / L), wood: rnd(d * 0.91) < 0.5 });
+        d += L + 55;
+      }
+    } else d += 15;
+  }
+  W3.bumps = bumps; W3.kickers = kickers;
+
+  // 3) Fijne punten langs het pad + ruimtelijke index (voor terreinhoogte en bomen)
+  const sx = [], sz = [], sy = [];
+  for (let d = 0; d <= R.total; d += 2) { pathAt(d, _pa); sx.push(_pa.x); sz.push(_pa.z); sy.push(_pa.y); }
+  const CELL = 40, grid = new Map();
+  const key = (cx, cz) => cx * 100003 + cz;
+  for (let i = 0; i < sx.length; i++) {
+    const k = key(Math.floor(sx[i] / CELL), Math.floor(sz[i] / CELL));
+    let a = grid.get(k); if (!a) grid.set(k, a = []); a.push(i);
+  }
+  const meanY = sy.reduce((a, b) => a + b, 0) / sy.length;
+  function heightAt(px, pz) {
+    const cx = Math.floor(px / CELL), cz = Math.floor(pz / CELL);
+    let ws = 0, hs = 0;
+    for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) {
+      const a = grid.get(key(cx + i, cz + j)); if (!a) continue;
+      for (const k of a) { const dx = sx[k] - px, dz = sz[k] - pz, d2 = dx * dx + dz * dz; const w = 1 / (d2 * d2 + 1); ws += w; hs += w * sy[k]; }
+    }
+    if (ws > 0) return hs / ws - 0.35;
+    for (let r = 2; r <= 6; r++) {           // verder weg: dichtstbijzijnde punt
+      let best = Infinity, by = meanY;
+      for (let i = -r; i <= r; i++) for (let j = -r; j <= r; j++) {
+        if (Math.abs(i) !== r && Math.abs(j) !== r) continue;
+        const a = grid.get(key(cx + i, cz + j)); if (!a) continue;
+        for (const k of a) { const dx = sx[k] - px, dz = sz[k] - pz, d2 = dx * dx + dz * dz; if (d2 < best) { best = d2; by = sy[k]; } }
+      }
+      if (best < Infinity) return by - 0.35 - Math.min(6, (Math.sqrt(best) - 40) * 0.04);
+    }
+    return meanY - 6;
+  }
+  function nearTrail(px, pz, r) {
+    const cx = Math.floor(px / CELL), cz = Math.floor(pz / CELL), r2 = r * r;
+    for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) {
+      const a = grid.get(key(cx + i, cz + j)); if (!a) continue;
+      for (const k of a) { const dx = sx[k] - px, dz = sz[k] - pz; if (dx * dx + dz * dz < r2) return true; }
+    }
+    return false;
+  }
+  W3.heightAt = heightAt;
+
+  // 4) Terrein (hoogteveld)
+  let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+  for (let i = 0; i < sx.length; i++) { minX = Math.min(minX, sx[i]); maxX = Math.max(maxX, sx[i]); minZ = Math.min(minZ, sz[i]); maxZ = Math.max(maxZ, sz[i]); }
+  const PAD = 170; minX -= PAD; maxX += PAD; minZ -= PAD; maxZ += PAD;
+  const sp = Math.max(9, Math.sqrt((maxX - minX) * (maxZ - minZ) / 150000));
+  const nx = Math.ceil((maxX - minX) / sp) + 1, nz = Math.ceil((maxZ - minZ) / sp) + 1;
+  const gpos = new Float32Array(nx * nz * 3), gcol = new Float32Array(nx * nz * 3);
+  const cA = new TH.Color('#3f5a26'), cB = new TH.Color('#5c5030'), cC = new TH.Color('#2f4a1f'), tc = new TH.Color();
+  for (let j = 0; j < nz; j++) for (let i = 0; i < nx; i++) {
+    const k = j * nx + i, px = minX + i * sp, pz = minZ + j * sp;
+    gpos[k * 3] = px; gpos[k * 3 + 1] = heightAt(px, pz); gpos[k * 3 + 2] = pz;
+    const nse = 0.5 + 0.25 * Math.sin(px * 0.031 + Math.sin(pz * 0.017) * 2) + 0.25 * Math.sin(pz * 0.043 - px * 0.011);
+    tc.copy(cA).lerp(cB, clamp(nse, 0, 1) * 0.8).lerp(cC, rnd(k * 0.37) * 0.35);
+    gcol[k * 3] = tc.r; gcol[k * 3 + 1] = tc.g; gcol[k * 3 + 2] = tc.b;
+  }
+  const gidx = new (nx * nz > 65000 ? Uint32Array : Uint16Array)((nx - 1) * (nz - 1) * 6);
+  let q = 0;
+  for (let j = 0; j < nz - 1; j++) for (let i = 0; i < nx - 1; i++) {
+    const a = j * nx + i, b = a + 1, c = a + nx, d2 = c + 1;
+    gidx[q++] = a; gidx[q++] = c; gidx[q++] = b; gidx[q++] = b; gidx[q++] = c; gidx[q++] = d2;
+  }
+  const gGeo = new TH.BufferGeometry();
+  gGeo.setAttribute('position', new TH.BufferAttribute(gpos, 3));
+  gGeo.setAttribute('color', new TH.BufferAttribute(gcol, 3));
+  gGeo.setIndex(new TH.BufferAttribute(gidx, 1));
+  gGeo.computeVertexNormals();
+  const ground = new TH.Mesh(gGeo, new TH.MeshLambertMaterial({ vertexColors: true }));
+  ground.receiveShadow = true; world.add(ground);
+
+  // 5) Het MTB-pad (met heuveltjes/schansjes), iets verhoogd
+  const tp = [], tcol = [], tid = [];
+  const offs = [-1.9, -0.85, 0, 0.85, 1.9], cols = ['#4a3a22', '#6a4e32', '#7a5c3d', '#6a4e32', '#4a3a22'].map(c => new TH.Color(c));
+  let sections = 0;
+  for (let d = 0; ;) {
+    pathAt(d, _pa); const b = bumpAt(d), h = headingAt(d, 1, 1), lx = h.z, lz = -h.x;
+    for (let k = 0; k < offs.length; k++) {
+      const edge = k === 0 || k === 4;
+      const yy = edge ? _pa.y - 0.55 + b * 0.3 : _pa.y + b + (k === 2 ? 0.01 : 0);
+      tp.push(_pa.x + lx * offs[k], yy, _pa.z + lz * offs[k]);
+      tc.copy(cols[k]).multiplyScalar(0.9 + rnd(d * 1.3 + k) * 0.2);
+      tcol.push(tc.r, tc.g, tc.b);
+    }
+    if (sections > 0) {
+      const a0 = (sections - 1) * 5, b0 = sections * 5;
+      for (let k = 0; k < 4; k++) tid.push(a0 + k, b0 + k, a0 + k + 1, a0 + k + 1, b0 + k, b0 + k + 1);
+    }
+    sections++;
+    if (d >= R.total) break;
+    const fine = bumpAt(d) > 0.001 || bumpAt(d + 2) > 0.001 || bumpAt(d + 4) > 0.001;
+    d = Math.min(R.total, d + (fine ? 0.5 : 2));
+  }
+  const tGeo = new TH.BufferGeometry();
+  tGeo.setAttribute('position', new TH.Float32BufferAttribute(tp, 3));
+  tGeo.setAttribute('color', new TH.Float32BufferAttribute(tcol, 3));
+  tGeo.setIndex(tid); tGeo.computeVertexNormals();
+  const trail = new TH.Mesh(tGeo, new TH.MeshLambertMaterial({ vertexColors: true, side: TH.DoubleSide }));
+  trail.receiveShadow = true; world.add(trail);
+
+  // 6) Bos (instanced: snel genoeg voor iPad)
+  const trees = [];
+  const step = Math.max(3.2, R.total / 7000);
+  for (let d = 0; d < R.total; d += step) for (const side of [-1, 1]) {
+    const r = rnd(d * 0.77 + side * 13.1);
+    if (r < 0.25) continue;
+    const off = 4.3 + Math.pow(rnd(d * 1.91 + side), 1.7) * 55;
+    pathAt(d + rnd(d * 2.3) * step, _pa); const h = headingAt(d, 2, 2);
+    const px = _pa.x + h.z * off * side, pz = _pa.z - h.x * off * side;
+    if (nearTrail(px, pz, 3.3)) continue;
+    trees.push({ x: px, z: pz, y: heightAt(px, pz), h: 7 + rnd(d * 3.7 + side) * 11, pine: rnd(d * 5.1 + side) < 0.6, s: d });
+  }
+  const dummy = new TH.Object3D();
+  function instanced(geo, mat, items, setter, colors) {
+    const m = new TH.InstancedMesh(geo, mat, Math.max(1, items.length));
+    items.forEach((t, i) => { setter(t, dummy); dummy.updateMatrix(); m.setMatrixAt(i, dummy.matrix); if (colors) m.setColorAt(i, colors(t)); });
+    m.count = items.length; m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true;
+    world.add(m); return m;
+  }
+  const pines = trees.filter(t => t.pine), leafs = trees.filter(t => !t.pine);
+  const trunkGeo = new TH.CylinderGeometry(0.6, 1, 1, 6); trunkGeo.translate(0, 0.5, 0);
+  const trunkMat = new TH.MeshLambertMaterial({ color: '#4a3423' });
+  const coneGeo = new TH.ConeGeometry(1, 1, 8); coneGeo.translate(0, 0.5, 0);
+  const crownMat = new TH.MeshLambertMaterial({ flatShading: true });
+  const pineCols = ['#1f4a2a', '#26563a', '#2b5f36', '#1c4226'].map(c => new TH.Color(c));
+  const leafCols = ['#3f6f2e', '#4b7d33', '#5d8a2f', '#8a7a2a', '#a0662a', '#6b7f2c'].map(c => new TH.Color(c));
+  instanced(trunkGeo, trunkMat, trees, (t, o) => { o.position.set(t.x, t.y, t.z); o.scale.set(0.22 + t.h * 0.012, t.h * (t.pine ? 0.4 : 0.55), 0.22 + t.h * 0.012); o.rotation.set(0, 0, 0); });
+  instanced(coneGeo, crownMat, pines, (t, o) => { o.position.set(t.x, t.y + t.h * 0.18, t.z); o.scale.set(t.h * 0.24, t.h * 0.55, t.h * 0.24); o.rotation.set(0, t.s, 0); }, t => pineCols[Math.floor(rnd(t.s * 7.1) * 4)]);
+  instanced(coneGeo, crownMat, pines, (t, o) => { o.position.set(t.x, t.y + t.h * 0.5, t.z); o.scale.set(t.h * 0.17, t.h * 0.5, t.h * 0.17); o.rotation.set(0, t.s * 2, 0); }, t => pineCols[Math.floor(rnd(t.s * 3.3) * 4)]);
+  const blobGeo = new TH.IcosahedronGeometry(1, 1);
+  instanced(blobGeo, crownMat, leafs, (t, o) => { o.position.set(t.x, t.y + t.h * 0.68, t.z); o.scale.set(t.h * 0.3, t.h * 0.33, t.h * 0.3); o.rotation.set(t.s, t.s * 3, 0); }, t => leafCols[Math.floor(rnd(t.s * 9.7) * leafCols.length)]);
+
+  // Stenen en omgevallen stammen langs het pad
+  const rocks = [], logs = [];
+  for (let d = 5; d < R.total; d += 9) {
+    if (rnd(d * 4.4) < 0.45) continue;
+    const side = rnd(d * 8.1) < 0.5 ? -1 : 1, off = 2.6 + rnd(d * 2.2) * 2.5;
+    pathAt(d, _pa); const h = headingAt(d, 2, 2);
+    const px = _pa.x + h.z * off * side, pz = _pa.z - h.x * off * side;
+    if (nearTrail(px, pz, 2.4)) continue;
+    rocks.push({ x: px, z: pz, y: heightAt(px, pz) + 0.15, s: 0.25 + rnd(d * 6.6) * 0.6, d });
+    if (rnd(d * 3.9) < 0.12) {
+      const off2 = 5 + rnd(d) * 6, qx = _pa.x + h.z * off2 * -side, qz = _pa.z - h.x * off2 * -side;
+      if (!nearTrail(qx, qz, 4)) logs.push({ x: qx, z: qz, y: heightAt(qx, qz) + 0.25, d });
+    }
+  }
+  instanced(new TH.DodecahedronGeometry(1, 0), new TH.MeshLambertMaterial({ color: '#8a8d8f', flatShading: true }), rocks,
+    (t, o) => { o.position.set(t.x, t.y, t.z); o.scale.set(t.s, t.s * 0.6, t.s * 0.9); o.rotation.set(t.d, t.d * 2, 0); });
+  const logGeo = new TH.CylinderGeometry(0.28, 0.32, 1, 8); logGeo.rotateZ(Math.PI / 2);
+  instanced(logGeo, trunkMat, logs, (t, o) => { o.position.set(t.x, t.y, t.z); o.scale.set(4 + rnd(t.d) * 4, 1, 1); o.rotation.set(0, t.d, 0); });
+
+  // Houten schansjes
+  const wood = new TH.MeshLambertMaterial({ color: '#a8743f' }), woodDark = new TH.MeshLambertMaterial({ color: '#6e4826' });
+  for (const k of kickers) {
+    if (!k.wood) continue;
+    pathAt(k.start, _pa); const ya = _pa.y, xa = _pa.x, za = _pa.z;
+    pathAt(k.end, _pb); const yb = _pb.y + k.H, len = Math.hypot(_pb.x - xa, _pb.z - za, yb - ya);
+    const plank = new TH.Mesh(new TH.BoxGeometry(1.5, 0.07, len), wood);
+    plank.position.set((xa + _pb.x) / 2, (ya + yb) / 2 + 0.06, (za + _pb.z) / 2);
+    plank.lookAt(_pb.x, yb + 0.06, _pb.z); plank.castShadow = true; world.add(plank);
+    for (const s of [-0.65, 0.65]) {
+      const h = headingAt(k.end, 1, 1);
+      const post = new TH.Mesh(new TH.BoxGeometry(0.1, k.H + 0.5, 0.1), woodDark);
+      post.position.set(_pb.x + h.z * s, _pb.y + (k.H - 0.5) / 2 + 0.02, _pb.z - h.x * s); world.add(post);
+    }
+  }
+
+  // Kilometerpaaltjes en finish
+  const signMat = txt => {
+    const c = document.createElement('canvas'); c.width = 128; c.height = 64; const g = c.getContext('2d');
+    g.fillStyle = '#f2ead3'; g.fillRect(0, 0, 128, 64); g.strokeStyle = '#5a4329'; g.lineWidth = 6; g.strokeRect(3, 3, 122, 58);
+    g.fillStyle = '#2d2116'; g.font = 'bold 34px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(txt, 64, 34);
+    return new TH.MeshLambertMaterial({ map: new TH.CanvasTexture(c) });
+  };
+  const postMat = new TH.MeshLambertMaterial({ color: '#6e4826' });
+  for (let km = 1; km * 1000 < R.total - 50; km++) {
+    const d = km * 1000; pathAt(d, _pa); const h = headingAt(d, 2, 2), gy = trailY(d);
+    const px = _pa.x - h.z * 2.8, pz = _pa.z + h.x * 2.8;
+    const post = new TH.Mesh(new TH.BoxGeometry(0.12, 1.4, 0.12), postMat); post.position.set(px, gy + 0.5, pz); world.add(post);
+    const sign = new TH.Mesh(new TH.BoxGeometry(0.8, 0.4, 0.04), signMat('km ' + km));
+    sign.position.set(px, gy + 1.25, pz); sign.rotation.y = Math.atan2(h.x, h.z) + Math.PI; world.add(sign);
+  }
+  {
+    const d = R.total; pathAt(d, _pa); const h = headingAt(d - 3, 3, 3), gy = trailY(d);
+    const c = document.createElement('canvas'); c.width = 256; c.height = 64; const g = c.getContext('2d');
+    for (let i = 0; i < 16; i++) for (let j = 0; j < 4; j++) { g.fillStyle = (i + j) % 2 ? '#111' : '#fff'; g.fillRect(i * 16, j * 16, 16, 16); }
+    g.fillStyle = '#f97316'; g.fillRect(64, 8, 128, 48); g.fillStyle = '#fff'; g.font = 'bold 36px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('FINISH', 128, 33);
+    const banner = new TH.Mesh(new TH.BoxGeometry(5.4, 1.1, 0.1), new TH.MeshLambertMaterial({ map: new TH.CanvasTexture(c) }));
+    banner.position.set(_pa.x, gy + 3.4, _pa.z); banner.rotation.y = Math.atan2(h.x, h.z); world.add(banner);
+    for (const s of [-2.7, 2.7]) { const p = new TH.Mesh(new TH.CylinderGeometry(0.12, 0.12, 4, 8), new TH.MeshLambertMaterial({ color: '#e5e7eb' })); p.position.set(_pa.x + h.z * s, gy + 2, _pa.z - h.x * s); world.add(p); }
+  }
+
+  W3.scene.add(world); W3.world = world;
+}
+
+/* ---------------- Andere mountainbikers ---------------- */
+const NPC_STYLES = [
+  { frame: '#b91c1c', frame2: '#7f1d1d', spring: '#facc15', jersey: '#1d4ed8', accent: '#facc15', shorts: '#111827', skin: '#e0ac85', helmet: '#111827', pack: '#1f2937' },
+  { frame: '#16a34a', frame2: '#14532d', spring: '#e5e7eb', jersey: '#dc2626', accent: '#f8fafc', shorts: '#27272a', skin: '#8d5a3b', helmet: '#f8fafc', pack: '#3f3f46' },
+  { frame: '#7c3aed', frame2: '#4c1d95', spring: '#22d3ee', jersey: '#fde047', accent: '#111827', shorts: '#1f2937', skin: '#f1c7a5', helmet: '#7c3aed', pack: '#111827' },
+  { frame: '#e5e7eb', frame2: '#9ca3af', spring: '#ef4444', jersey: '#0f766e', accent: '#fb923c', shorts: '#3f3f46', skin: '#c68c64', helmet: '#fb923c', pack: '#0f172a' },
+];
+function spawnNpc(pos) {
+  const R = S.route; const overtake = Math.random() < 0.55;
+  let d = overtake ? pos - 28 : pos + 95;
+  if (d < 0 || d > R.total - 30) return;
+  let r = W3.npcPool.pop();
+  if (!r) r = makeRider(NPC_STYLES[Math.floor(Math.random() * NPC_STYLES.length)]);
+  W3.scene.add(r.root);
+  W3.npcs.push({ r, d, base: overtake ? Math.max(S.v, 4) + 1.6 + Math.random() * 1.6 : Math.max(2.5, S.v * 0.55), side: overtake ? 1.15 : -0.95, crank: Math.random() * 6, wheel: 0 });
+}
+function updateNpcs(pos, dt, now) {
+  if (S.running && S.v > 1.5 && now > W3.nextNpc && W3.npcs.length < 2) { spawnNpc(pos); W3.nextNpc = now + (25 + Math.random() * 45) * 1000; }
+  W3.npcs = W3.npcs.filter(n => {
+    const g = routeAt(n.d).grade;
+    const v = n.base * clamp(1 - g * 4, 0.45, 1.6);
+    n.d += v * dt; n.crank += (g < -0.03 ? 0.2 : 1.45) * 2 * Math.PI * dt; n.wheel += v * dt / 0.37;
+    if (n.d > S.route.total - 2 || n.d > pos + 190 || n.d < pos - 70) { W3.scene.remove(n.r.root); W3.npcPool.push(n.r); return false; }
+    pathAt(n.d, _pa); const h = headingAt(n.d);
+    const ny = trailY(n.d), pitch = Math.atan2(trailY(n.d + 0.6) - trailY(n.d - 0.6), 1.2);
+    n.r.root.position.set(_pa.x + h.z * n.side, ny, _pa.z - h.x * n.side);
+    n.r.root.rotation.set(-pitch, Math.atan2(h.x, h.z), 0);
+    n.r.update({ crank: n.crank, wheel: n.wheel, descend: g < -0.035 ? 1 : 0, climb: 0 });
+    return true;
+  });
+}
+
+/* ---------------- Tekenen per frame ---------------- */
+function render3D(now) {
+  const dt = Math.min(0.1, (now - W3.lastT) / 1000); W3.lastT = now;
+  if (SC.view === 'kaart' || !S.route || !W3.world) return;
+  const r = W3.renderer, cv = r.domElement, w = cv.clientWidth, h = cv.clientHeight;
+  if (!w || !h) return;
+  const size = r.getSize(new THREE.Vector2());
+  if (size.x !== w || size.y !== h) { r.setSize(w, h, false); W3.camera.aspect = w / h; W3.camera.updateProjectionMatrix(); }
+
+  let pos = S.pos;
+  if (S.running) pos = Math.min(S.route.total, S.pos + S.v * clamp((now - (S.posAt || now)) / 1000, 0, 0.3));
+  const moving = S.running && S.v > 0.1;
+  const grade = routeAt(pos).grade;
+
+  // Sprongen over schansjes
+  if (pos < W3.prevPos - 5 || pos > W3.prevPos + 30) W3.air = null;
+  if (!W3.air && moving) for (const k of W3.kickers) if (W3.prevPos < k.end && pos >= k.end && S.v > 3) {
+    W3.air = { y: trailY(k.end - 0.05), vy: S.v * Math.sin(k.angle) * 1.35 }; break;
+  }
+  W3.prevPos = pos;
+  const ty = trailY(pos); let ry = ty, airPitch = null;
+  if (W3.air) {
+    W3.air.vy -= 9.81 * dt; W3.air.y += W3.air.vy * dt;
+    if (W3.air.y <= ty) W3.air = null; else { ry = W3.air.y; airPitch = Math.atan2(W3.air.vy, Math.max(S.v, 1)) * 0.45; }
+  }
+
+  // Richting, helling, inleunen in bochten
+  pathAt(pos, _pa); const cx = _pa.x, cz = _pa.z;
+  const hd = headingAt(pos), yaw = Math.atan2(hd.x, hd.z);
+  const hd2 = headingAt(pos + 7, 3, 3);
+  let dyaw = Math.atan2(hd2.x, hd2.z) - yaw; dyaw = Math.atan2(Math.sin(dyaw), Math.cos(dyaw));
+  const kappa = dyaw / 7;
+  const leanT = moving ? -Math.atan(clamp(S.v * S.v * kappa / 9.81, -0.9, 0.9)) * 0.85 : 0;
+  W3.lean += (leanT - W3.lean) * Math.min(1, dt * 3);
+  const pitch = airPitch != null ? airPitch : Math.atan2(trailY(pos + 0.6) - trailY(pos - 0.6), 1.2);
+  const P = W3.player;
+  P.root.position.set(cx, ry, cz);
+  const climbT = grade > 0.07 && S.power > 220 && !W3.air ? 1 : 0, descT = (W3.air || grade < -0.035) ? 1 : 0;
+  W3.climb += (climbT - W3.climb) * Math.min(1, dt * 2.5);
+  W3.descend += (descT - W3.descend) * Math.min(1, dt * 2.5);
+  P.root.rotation.set(-pitch, yaw, W3.lean + Math.sin(W3.crank) * 0.07 * W3.climb);
+
+  if (moving) {
+    W3.wheel += S.v * dt / 0.37;
+    const cad = S.cadence || 0;
+    if (W3.descend > 0.5 || cad <= 0) { const tgt = Math.round(W3.crank / Math.PI) * Math.PI; W3.crank += (tgt - W3.crank) * Math.min(1, dt * 4); }
+    else W3.crank += cad / 60 * 2 * Math.PI * dt;
+  }
+  P.update({ crank: W3.crank, wheel: W3.wheel, descend: W3.descend, climb: W3.climb });
+
+  updateNpcs(pos, dt, now);
+
+  // Camera achter de rijder, volgt het pad
+  pathAt(pos - 5.2, _pb);
+  const camY = Math.max(trailY(pos - 5.2) + 2.1, ry + 1.5, (W3.heightAt ? W3.heightAt(_pb.x, _pb.z) : -1e9) + 1.2);
+  const tgtPos = new THREE.Vector3(_pb.x, camY, _pb.z);
+  const look = new THREE.Vector3(cx + hd.x * 6, ry + 0.9, cz + hd.z * 6);
+  if (!W3.camInit) { W3.camPos.copy(tgtPos); W3.camLook.copy(look); W3.camInit = true; }
+  const k = 1 - Math.exp(-dt * 5);
+  W3.camPos.lerp(tgtPos, k); W3.camLook.lerp(look, k);
+  W3.camera.position.copy(W3.camPos); W3.camera.lookAt(W3.camLook);
+
+  // Zon schijnt van achteren-links, schaduw volgt de rijder
+  W3.sun.position.set(cx - hd.x * 25 + hd.z * 18, ry + 45, cz - hd.z * 25 - hd.x * 18);
+  W3.sun.target.position.set(cx + hd.x * 4, ry, cz + hd.z * 4); W3.sun.target.updateMatrixWorld();
+
+  r.render(W3.scene, W3.camera);
+}
+
 /* ---------------- Opstarten ---------------- */
-setView(SC.view);
-initMap();
+function safe(label, fn) {
+  try { fn(); } catch (e) { console.error(label, e); window.__bootErr && window.__bootErr(label + ': ' + (e && e.message || e)); throw e; }
+}
+safe('weergave', () => setView(SC.view));
+try { initMap(); } catch (e) { console.warn('Kaart niet beschikbaar', e); map = null; }
+try { init3D(); } catch (e) { console.warn('3D niet beschikbaar', e); W3.ok = false; $('scene').hidden = false; }
 $('demoPower').value = settings.demoPower;
 (function boot() {
   const saved = store.get('krr.gpx', null);
-  if (saved && saved.text) loadRouteText(saved.text, saved.fileName, true);
+  if (saved && saved.text) { try { loadRouteText(saved.text, saved.fileName, true); } catch (e) { console.warn(e); store.del('krr.gpx'); } }
   // Terugkeer van Strava-koppeling?
   const q = new URLSearchParams(location.search);
   if (q.get('code') || q.get('error')) {
@@ -1272,7 +1843,7 @@ $('demoPower').value = settings.demoPower;
     else toast('Strava-koppeling geannuleerd.');
   }
   updateButtons(); updateUI(); drawProfile(); updateStravaStatus();
-  $('nojs').hidden = true;
+  $('nojs').hidden = true; window.__booted = true;
   if (!navigator.bluetooth) setTimeout(() => toast('Tip: op iPad werkt Bluetooth alleen in de app “Bluefy”. Open deze pagina daarin.', 7000), 800);
 })();
 </script>
